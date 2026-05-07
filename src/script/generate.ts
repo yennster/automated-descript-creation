@@ -1,5 +1,6 @@
 import type { Clip, TranscriptBeat } from "../types.js";
 import { runGemini, extractJson, isGeminiAvailable } from "../ai/gemini.js";
+import { withSpinner } from "../ai/spinner.js";
 
 /**
  * Top-level entry point.
@@ -112,7 +113,7 @@ Output STRICT JSON, no prose, with this shape:
 
 One beat per clip, same order as listed. The narration field is what the speaker says during that clip.`;
 
-  const text = await runGemini({ prompt });
+  const text = await withSpinner("Gemini writing narration", () => runGemini({ prompt }));
   const parsed = JSON.parse(extractJson(text)) as {
     beats: { clipLabel: string; narration: string; cue?: string }[];
   };
