@@ -13,6 +13,13 @@ export interface Clip {
    * aspect ratio. Set by `capture` mode (one group per --format).
    */
   group?: string;
+  /**
+   * Pre-built beats for this clip's timeline, with start/end times relative
+   * to the clip start. Set by capture mode when an action flow is run —
+   * each click/fill/scroll becomes one beat. When present, the transcript
+   * writer uses these directly instead of asking the model to generate one.
+   */
+  beats?: TranscriptBeat[];
 }
 
 export interface RunInput {

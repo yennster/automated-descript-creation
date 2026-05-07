@@ -1,7 +1,11 @@
 import { chromium, type Browser, type Page } from "playwright";
 import { mkdir, readdir, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { Clip } from "../types.js";
+import type { Clip, TranscriptBeat } from "../types.js";
+import {
+  type CaptureAction,
+  runActionFlow,
+} from "./capture-actions.js";
 
 export type CaptureFormat =
   | "desktop"
@@ -12,19 +16,7 @@ export type CaptureFormat =
 
 interface FormatSpec {
   label: string;
-  /**
-   * The viewport dimensions. We deliberately make this 1:1 with the
-   * recordVideo size: Playwright records the framebuffer at the logical
-   * viewport, so a recordVideo size larger than the viewport gets gray
-   * letterbox padding instead of pixel-perfect output. Setting them equal
-   * means the page fills the recording.
-   *
-   * Trade-off: at 4K, the page renders into a 3840-wide viewport — most
-   * apps designed for ~1920 desktop will show tiny text. Default desktop
-   * is 1080p; opt into desktop-4k explicitly.
-   */
   viewport: { width: number; height: number };
-  /** Sets isMobile + hasTouch on the context so mobile breakpoints fire. */
   isMobile: boolean;
 }
 
@@ -61,16 +53,25 @@ export function isCaptureFormat(s: string): s is CaptureFormat {
 }
 
 /**
- * `capture` mode: open a deployed app in a real browser, perform a gentle
- * automated tour, and record it. With multiple formats specified, runs once
- * per format on the same browser instance — useful for getting a desktop +
- * Shorts/Reels cut from a single command.
+ * `capture` mode. Two flavors:
+ *
+ * 1. Action flow (recommended): pass `actions` — a list of click/fill/scroll
+ *    steps. Capture loads the URL, executes each action, and records the
+ *    whole sequence. Each action becomes a beat in the transcript with its
+ *    own start/end time, so you know what to say while it's playing back.
+ *
+ * 2. Scroll tour (default fallback): no actions → automated slow-scroll
+ *    of the landing page. Useful as a placeholder.
+ *
+ * With multiple `formats`, the actions/tour run once per format on the same
+ * browser instance.
  */
 export async function captureUrl(args: {
   url: string;
   describe: string;
   outputDir: string;
   formats: CaptureFormat[];
+  actions?: CaptureAction[];
 }): Promise<Clip[]> {
   if (args.formats.length === 0) throw new Error("At least one format is required");
 
@@ -86,6 +87,7 @@ export async function captureUrl(args: {
         url: args.url,
         videoDir,
         formatKey,
+        actions: args.actions,
       });
       clips.push(clip);
     }
@@ -100,10 +102,9 @@ async function captureOneFormat(args: {
   url: string;
   videoDir: string;
   formatKey: CaptureFormat;
+  actions?: CaptureAction[];
 }): Promise<Clip> {
   const spec = FORMAT_PRESETS[args.formatKey];
-  // Each format gets its own subdir so we can confidently rename — Playwright
-  // auto-names video files and we'd otherwise have to disambiguate.
   const formatDir = resolve(args.videoDir, args.formatKey);
   await mkdir(formatDir, { recursive: true });
 
@@ -115,18 +116,31 @@ async function captureOneFormat(args: {
   });
   const page = await context.newPage();
 
-  const startMs = Date.now();
+  const recordingStartMs = Date.now();
+  let beats: TranscriptBeat[] | undefined;
   try {
     await page.goto(args.url, { waitUntil: "networkidle", timeout: 30_000 });
-    await page.waitForTimeout(1500);
-    await slowScroll(page, "down", 8000);
-    await page.waitForTimeout(500);
-    await slowScroll(page, "up", 4000);
-    await page.waitForTimeout(500);
+    if (args.actions && args.actions.length > 0) {
+      console.log(`[capture] running ${args.actions.length} action(s) on ${args.formatKey}`);
+      const actionBeats = await runActionFlow({ page, actions: args.actions, recordingStartMs });
+      beats = actionBeats.map((b) => ({
+        clipLabel: b.label,
+        startSec: b.startSec,
+        endSec: b.endSec,
+        narration: b.narration,
+        cue: b.cue,
+      }));
+    } else {
+      await page.waitForTimeout(1500);
+      await slowScroll(page, "down", 8000);
+      await page.waitForTimeout(500);
+      await slowScroll(page, "up", 4000);
+      await page.waitForTimeout(500);
+    }
   } finally {
     await context.close();
   }
-  const durationSec = (Date.now() - startMs) / 1000;
+  const durationSec = (Date.now() - recordingStartMs) / 1000;
 
   const written = (await readdir(formatDir)).filter((f) => f.endsWith(".webm"));
   if (written.length === 0) throw new Error(`No video recorded in ${formatDir}`);
@@ -140,8 +154,9 @@ async function captureOneFormat(args: {
     path: finalPath,
     label: spec.label,
     durationSec,
-    beat: `${spec.label} — landing page of ${args.url}, slow scroll through the page.`,
+    beat: `${spec.label} — ${args.url}`,
     group: args.formatKey,
+    beats,
   };
 }
 
