@@ -7,7 +7,7 @@ import type { Clip } from "../types.js";
 const VIDEO_EXTS = new Set([".mp4", ".mov", ".webm", ".mkv"]);
 
 /**
- * Mode 2b: take a folder of clips the user already recorded and prep them for
+ * `stitch` mode: take a folder of clips the user already recorded and prep them for
  * upload in alphabetical order.
  *
  * Durations: we try `ffprobe` first (most accurate). If it's not installed,

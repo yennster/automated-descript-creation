@@ -15,7 +15,7 @@ const program = new Command()
 
 program
   .command("capture")
-  .description("Mode 2a: open a URL in Playwright, record a tour, draft in Descript")
+  .description("open a URL in Playwright, record a tour, draft in Descript")
   .requiredOption("-u, --url <url>", "URL of the deployed app")
   .requiredOption("-d, --describe <text>", "What to demo / why it's interesting")
   .requiredOption("-n, --name <name>", "Descript project name")
@@ -38,7 +38,7 @@ program
 
 program
   .command("stitch")
-  .description("Mode 2b: take an existing folder of clips, draft in Descript")
+  .description("take an existing folder of clips, draft in Descript")
   .requiredOption("-c, --clips <dir>", "Folder containing video clips")
   .requiredOption("-d, --describe <text>", "What the demo is about")
   .requiredOption("-n, --name <name>", "Descript project name")
@@ -57,7 +57,7 @@ program
 
 program
   .command("mock")
-  .description("Mode 2c: prompt-only, produce title-card slides + transcript")
+  .description("prompt-only: produce title-card slides + transcript")
   .requiredOption("-d, --describe <text>", "Project pitch / what to demo")
   .requiredOption("-n, --name <name>", "Descript project name")
   .option("-t, --target <sec>", "Target total length in seconds", "60")
