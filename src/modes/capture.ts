@@ -3,6 +3,15 @@ import { mkdir, readdir, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Clip } from "../types.js";
 
+export type Resolution = "720p" | "1080p" | "1440p" | "4k";
+
+const RES_PRESETS: Record<Resolution, { width: number; height: number }> = {
+  "720p": { width: 1280, height: 720 },
+  "1080p": { width: 1920, height: 1080 },
+  "1440p": { width: 2560, height: 1440 },
+  "4k": { width: 3840, height: 2160 },
+};
+
 /**
  * `capture` mode: open a deployed app in a real browser, perform a gentle
  * automated "tour" (navigate → settle → slow scroll), and record it as a
@@ -17,14 +26,16 @@ export async function captureUrl(args: {
   url: string;
   describe: string;
   outputDir: string;
+  resolution?: Resolution;
 }): Promise<Clip[]> {
   const videoDir = resolve(args.outputDir, "raw");
   await mkdir(videoDir, { recursive: true });
+  const size = RES_PRESETS[args.resolution ?? "4k"];
 
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
-    viewport: { width: 1280, height: 800 },
-    recordVideo: { dir: videoDir, size: { width: 1280, height: 800 } },
+    viewport: size,
+    recordVideo: { dir: videoDir, size },
   });
   const page = await context.newPage();
 
