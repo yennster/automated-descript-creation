@@ -4,47 +4,96 @@ import { basename } from "node:path";
 
 const BASE = "https://descriptapi.com/v1";
 
+export interface MediaSpec {
+  /** Display name shown in Descript and used as the media key. Must be unique within the request. */
+  displayName: string;
+  /** Path to a local file. Mutually exclusive with `url`. */
+  filePath?: string;
+  /** Remote URL Descript will fetch directly. Mutually exclusive with `filePath`. */
+  url?: string;
+  /** Override content type detection. Inferred from extension if omitted. */
+  contentType?: string;
+}
+
+export interface CreateProjectResponse {
+  jobId: string;
+  projectId: string;
+  projectUrl: string;
+  /** Map keyed by displayName; only present for media items requesting direct upload. */
+  uploadUrls: Record<string, { uploadUrl: string; assetId: string; artifactId: string }>;
+}
+
 export class DescriptClient {
+  /**
+   * driveId is no longer required for /jobs/import/project_media (it's
+   * inherited from the token), but we keep it for /v1/status sanity checks
+   * and forward-compat with endpoints that need it.
+   */
   constructor(
     private readonly token: string,
-    private readonly driveId: string,
+    private readonly _driveId?: string,
   ) {
     if (!token) throw new Error("DESCRIPT_API_TOKEN is required");
-    if (!driveId) throw new Error("DESCRIPT_DRIVE_ID is required");
   }
 
-  private headers(extra: Record<string, string> = {}): Record<string, string> {
+  private headers(): Record<string, string> {
     return {
       Authorization: `Bearer ${this.token}`,
       "Content-Type": "application/json",
-      ...extra,
     };
   }
 
   /**
-   * Step 1 of upload: ask Descript for a signed PUT URL.
-   * Step 2 (PUT bytes) and step 3 (poll) are below.
+   * Create a project (or add to an existing one), declare media + composition
+   * layout, and receive signed upload URLs for any local files.
    *
-   * The API uses a single POST /v1/jobs/import/project_media that accepts
-   * EITHER a remote `url` OR `content_type` + `file_size` (for direct upload).
-   * In the direct-upload case, the response includes upload_url + a job_id you
-   * poll until job_state === "stopped".
+   * The caller still needs to PUT the bytes to each signed URL — see
+   * `putBytes` and the `importLocalFiles` end-to-end helper below.
    */
-  async createImportJob(args: {
+  async createProjectWithMedia(args: {
     projectId?: string;
     projectName?: string;
-    contentType: string;
-    fileSize: number;
-    displayName: string;
-  }): Promise<{ jobId: string; uploadUrl: string }> {
+    media: MediaSpec[];
+    compositionName?: string;
+  }): Promise<CreateProjectResponse> {
+    if (args.media.length === 0) throw new Error("At least one media item required");
+
+    const addMedia: Record<string, Record<string, unknown>> = {};
+    const clips: { media: string }[] = [];
+
+    for (const m of args.media) {
+      const key = m.displayName;
+      if (key in addMedia) throw new Error(`Duplicate media displayName: ${key}`);
+      if (m.filePath && m.url) {
+        throw new Error(`Media ${key}: pass filePath OR url, not both`);
+      }
+
+      if (m.url) {
+        addMedia[key] = { url: m.url };
+      } else if (m.filePath) {
+        const size = (await stat(m.filePath)).size;
+        addMedia[key] = {
+          content_type: m.contentType ?? guessContentType(m.filePath),
+          file_size: size,
+        };
+      } else {
+        throw new Error(`Media ${key}: must specify filePath or url`);
+      }
+      clips.push({ media: key });
+    }
+
     const body: Record<string, unknown> = {
-      drive_id: this.driveId,
-      content_type: args.contentType,
-      file_size: args.fileSize,
-      display_name: args.displayName,
+      add_media: addMedia,
+      add_compositions: [
+        {
+          name: args.compositionName ?? args.projectName ?? "Main",
+          clips,
+        },
+      ],
     };
     if (args.projectId) body.project_id = args.projectId;
     else if (args.projectName) body.project_name = args.projectName;
+    else throw new Error("Either projectId or projectName is required");
 
     const res = await request(`${BASE}/jobs/import/project_media`, {
       method: "POST",
@@ -53,25 +102,43 @@ export class DescriptClient {
     });
     if (res.statusCode >= 300) {
       const text = await res.body.text();
-      throw new Error(`createImportJob ${res.statusCode}: ${text}`);
+      throw new Error(`createProjectWithMedia ${res.statusCode}: ${text}`);
     }
     const json = (await res.body.json()) as {
-      id: string;
-      upload_url: string;
+      job_id: string;
+      project_id: string;
+      project_url: string;
+      upload_urls?: Record<
+        string,
+        { upload_url: string; asset_id: string; artifact_id: string }
+      >;
     };
-    return { jobId: json.id, uploadUrl: json.upload_url };
+    const uploadUrls: CreateProjectResponse["uploadUrls"] = {};
+    for (const [k, v] of Object.entries(json.upload_urls ?? {})) {
+      uploadUrls[k] = {
+        uploadUrl: v.upload_url,
+        assetId: v.asset_id,
+        artifactId: v.artifact_id,
+      };
+    }
+    return {
+      jobId: json.job_id,
+      projectId: json.project_id,
+      projectUrl: json.project_url,
+      uploadUrls,
+    };
   }
 
-  async putBytes(uploadUrl: string, filePath: string): Promise<void> {
+  async putBytes(uploadUrl: string, filePath: string, contentType: string): Promise<void> {
     const buf = await readFile(filePath);
     const res = await request(uploadUrl, {
       method: "PUT",
-      headers: { "Content-Type": "application/octet-stream" },
+      headers: { "Content-Type": contentType },
       body: buf,
     });
     if (res.statusCode >= 300) {
       const text = await res.body.text();
-      throw new Error(`putBytes ${res.statusCode}: ${text}`);
+      throw new Error(`putBytes ${res.statusCode}: ${text.slice(0, 300)}`);
     }
   }
 
@@ -114,28 +181,52 @@ export class DescriptClient {
     throw new Error(`Job ${jobId} did not complete within ${timeout}ms`);
   }
 
-  /** End-to-end helper: upload one local file and wait for it to be imported. */
-  async importLocalFile(args: {
+  /**
+   * End-to-end helper: create a project (or add to an existing one) with N
+   * local files, upload all bytes in parallel, return the project_id.
+   *
+   * Set waitForJob=true if you need processing/transcription to finish before
+   * proceeding (e.g. before publishing).
+   */
+  async importLocalFiles(args: {
     projectId?: string;
     projectName?: string;
-    filePath: string;
-    contentType?: string;
-  }): Promise<{ projectId: string; compositionId?: string }> {
-    const fileSize = (await stat(args.filePath)).size;
-    const contentType = args.contentType ?? guessContentType(args.filePath);
-    const { jobId, uploadUrl } = await this.createImportJob({
+    files: { path: string; displayName?: string; contentType?: string }[];
+    compositionName?: string;
+    waitForJob?: boolean;
+  }): Promise<{ projectId: string; projectUrl: string; jobId: string }> {
+    const media: MediaSpec[] = args.files.map((f) => ({
+      displayName: f.displayName ?? basename(f.path),
+      filePath: f.path,
+      contentType: f.contentType,
+    }));
+
+    const created = await this.createProjectWithMedia({
       projectId: args.projectId,
       projectName: args.projectName,
-      contentType,
-      fileSize,
-      displayName: basename(args.filePath),
+      media,
+      compositionName: args.compositionName,
     });
-    await this.putBytes(uploadUrl, args.filePath);
-    const result = await this.pollJob(jobId);
-    if (!result.project_id) {
-      throw new Error(`Import job ${jobId} returned no project_id`);
+
+    await Promise.all(
+      args.files.map(async (f) => {
+        const name = f.displayName ?? basename(f.path);
+        const slot = created.uploadUrls[name];
+        if (!slot) throw new Error(`No upload_url returned for ${name}`);
+        const ct = f.contentType ?? guessContentType(f.path);
+        await this.putBytes(slot.uploadUrl, f.path, ct);
+      }),
+    );
+
+    if (args.waitForJob) {
+      await this.pollJob(created.jobId);
     }
-    return { projectId: result.project_id, compositionId: result.composition_id };
+
+    return {
+      projectId: created.projectId,
+      projectUrl: created.projectUrl,
+      jobId: created.jobId,
+    };
   }
 
   async publishComposition(args: {
@@ -156,8 +247,8 @@ export class DescriptClient {
       const text = await res.body.text();
       throw new Error(`publishComposition ${res.statusCode}: ${text}`);
     }
-    const jobJson = (await res.body.json()) as { id: string };
-    const result = await this.pollJob(jobJson.id, { timeoutMs: 15 * 60 * 1000 });
+    const jobJson = (await res.body.json()) as { job_id: string };
+    const result = await this.pollJob(jobJson.job_id, { timeoutMs: 15 * 60 * 1000 });
     return {
       shareUrl: (result as unknown as { share_url: string }).share_url,
       downloadUrl: (result as unknown as { download_url: string }).download_url,
@@ -183,6 +274,8 @@ function guessContentType(path: string): string {
     case "jpg":
     case "jpeg":
       return "image/jpeg";
+    case "svg":
+      return "image/svg+xml";
     default:
       return "application/octet-stream";
   }

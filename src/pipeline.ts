@@ -57,31 +57,32 @@ export async function runPipeline(args: {
     return result;
   }
 
-  const descript = new DescriptClient(token!, driveId!);
-  let projectId: string | undefined;
+  const descript = new DescriptClient(token!, driveId);
+  console.log(`[pipeline] uploading ${args.clips.length} clip(s) → Descript`);
+  const out = await descript.importLocalFiles({
+    projectName: args.name,
+    compositionName: args.name,
+    files: args.clips.map((c, i) => ({
+      path: c.path,
+      // keep clip order stable + display labels readable in Descript
+      displayName: `${String(i + 1).padStart(2, "0")}-${c.label.replace(/[^\w.-]+/g, "_")}${extOf(c.path)}`,
+    })),
+  });
 
-  for (let i = 0; i < args.clips.length; i++) {
-    const clip = args.clips[i]!;
-    const isFirst = i === 0;
-    console.log(
-      `[pipeline] uploading clip ${i + 1}/${args.clips.length} (${clip.label}) → Descript`,
-    );
-    const out = await descript.importLocalFile({
-      filePath: clip.path,
-      ...(isFirst ? { projectName: args.name } : { projectId }),
-    });
-    if (isFirst) projectId = out.projectId;
-  }
-
-  result.projectId = projectId;
-  console.log(`[pipeline] Descript project: ${projectId}`);
+  result.projectId = out.projectId;
+  console.log(`[pipeline] Descript project: ${out.projectUrl}`);
 
   const linkPath = join(args.outputDir, "descript-link.txt");
   await writeFile(
     linkPath,
-    `https://web.descript.com/project/${projectId}\n` +
+    `${out.projectUrl}\n` +
       `(Open in Descript, then File → Record to add voiceover using transcript.md)\n`,
   );
 
   return result;
+}
+
+function extOf(path: string): string {
+  const i = path.lastIndexOf(".");
+  return i === -1 ? "" : path.slice(i);
 }
