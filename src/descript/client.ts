@@ -2,7 +2,7 @@ import { request } from "undici";
 import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
 
-const BASE = "https://api.descriptapi.com/v1";
+const BASE = "https://descriptapi.com/v1";
 
 export class DescriptClient {
   constructor(
