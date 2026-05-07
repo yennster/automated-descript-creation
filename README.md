@@ -81,21 +81,25 @@ composition that matches its clip's aspect ratio (a 9:16 mobile clip
 in a 16:9 composition gets letterboxed; this avoids that). Output lands
 under `output/<run-id>/<format>/` per group.
 
-| Format          | Logical viewport | DPR | Video output | Use for                              |
-| --------------- | ---------------- | --- | ------------ | ------------------------------------ |
-| `desktop`       | 1920 × 1080      | 2   | 3840 × 2160  | YouTube desktop, 4K master (default) |
-| `desktop-1080p` | 1920 × 1080      | 1   | 1920 × 1080  | Smaller files, faster uploads        |
-| `desktop-720p`  | 1280 × 720       | 1   | 1280 × 720   | Low bandwidth, draft cuts            |
-| `mobile`        |  540 × 960       | 2   | 1080 × 1920  | YouTube Shorts, Instagram Reels, TikTok |
-| `mobile-720p`   |  360 × 640       | 2   |  720 × 1280  | Smaller mobile cuts                  |
+| Format          | Viewport / Video | Use for                                       |
+| --------------- | ---------------- | --------------------------------------------- |
+| `desktop`       | 1920 × 1080      | YouTube desktop (default)                     |
+| `desktop-4k`    | 3840 × 2160      | 4K master — text will be small on 1920-design apps |
+| `desktop-720p`  | 1280 × 720       | Drafts, low bandwidth                         |
+| `mobile`        | 1080 × 1920      | YouTube Shorts, Instagram Reels, TikTok       |
+| `mobile-720p`   |  720 × 1280      | Smaller mobile cuts                           |
 
-The retina-DPR formats (`desktop`, `mobile`, `mobile-720p`) render the page at
-a normal logical viewport with `deviceScaleFactor: 2`, then capture at the
-2× raster. That's why text stays readable at 4K — the page lays out for a
-1920px-wide screen, not a 3840px-wide one.
+Viewport and recording size are 1:1 — that's deliberate. Playwright records
+the framebuffer at the logical viewport, so a recording size larger than the
+viewport gets gray letterbox padding instead of pixel-perfect output.
 
-For mobile formats, Playwright also sets `isMobile: true` and `hasTouch: true`,
-so your app's mobile breakpoints kick in.
+The 4K trade-off: at a 3840-wide viewport, apps designed around 1920 desktop
+breakpoints render with everything taking half the relative space, so text
+looks tiny. If your app is responsive enough to look good at 4K, use
+`--format desktop-4k`; otherwise `desktop` (1080p) is the better default.
+
+Mobile formats also set `isMobile: true` and `hasTouch: true` so your app's
+mobile breakpoints fire.
 
 ## Output
 
