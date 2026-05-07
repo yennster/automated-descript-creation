@@ -1,6 +1,6 @@
 # automated-descript-creation
 
-Automate demo videos for AI-built apps via [Descript](https://descript.com).
+Automate demo videos for web apps via [Descript](https://descript.com).
 You bring an app (or clips, or just an idea); the tool produces a Descript
 project draft + a narration transcript ready for you to record your voice
 over.
@@ -22,17 +22,26 @@ All three converge on the same output:
 
 ## AI is optional
 
-`ANTHROPIC_API_KEY` is **only** used to generate two kinds of text: narration
-script (all modes) and slide outlines (`mock` only). Without a key:
+The AI bits use the [`gemini` CLI](https://github.com/google-gemini/gemini-cli)
+— no API key needed; auth comes from your interactive `gemini` login. It's
+used for three things:
+
+- Narration generation (all modes)
+- Slide outlines (`mock` mode)
+- Click-through action planning from a screenshot (`capture` mode, when
+  `--actions` isn't given)
+
+Without `gemini` installed, everything else still works:
 
 - The Descript project, clips/slides, and timing all still get produced.
 - `transcript.md` is written with `[Write narration for ...]` placeholders so
-  you can fill in the script yourself in any text editor.
+  you can fill in the script yourself.
 - `mock` falls back to a heuristic — newlines or sentences in your `--describe`
   become slide headlines.
+- `capture` falls back to an automated scroll tour.
 
-So if Anthropic billing isn't set up (Claude Max alone doesn't grant API
-access), you can still use everything; you just write the script.
+Install: `npm i -g @google/gemini-cli`, then run `gemini` once interactively
+to authenticate.
 
 ## Setup
 
@@ -106,9 +115,9 @@ through specific steps, pass an action plan one of two ways:
    over `selector`. The `beat` field is what the speaker narrates while that
    step is on screen.
 
-2. **`ANTHROPIC_API_KEY` set** — if no `--actions` path is given but the key
-   is present, capture takes a screenshot of the loaded page and asks Claude
-   (with vision) to plan an action list from your `--describe` text. Useful
+2. **`gemini` CLI installed** — if no `--actions` path is given, capture takes
+   a screenshot of the loaded page and asks Gemini (with vision via the
+   `gemini` CLI) to plan an action list from your `--describe` text. Useful
    for one-off demos where you don't want to author JSON.
 
 Either way, each action gets its own time-ranged beat in `transcript.md` —
@@ -164,8 +173,8 @@ mock all produce real Descript projects.
 
 Known limitations:
 
-- `capture` is a v1 "scroll tour" — one clip per format. Driving multi-step
-  interactions per beat (via Claude with vision) is the obvious next upgrade.
+- `capture` action flow handles click/fill/scroll. Multi-page navigation
+  works as long as Playwright can find each step's target by text or selector.
 - Slides are SVG — Descript's importer accepts them.
 - `publishComposition` is implemented but untested end-to-end (no completed
   draft to publish yet).

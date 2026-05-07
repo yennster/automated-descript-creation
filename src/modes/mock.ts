@@ -1,9 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Clip } from "../types.js";
-
-const MODEL = "claude-sonnet-4-6";
+import { runGemini, extractJson, isGeminiAvailable } from "../ai/gemini.js";
 
 interface SlideSpec {
   headline: string;
@@ -15,7 +13,7 @@ interface SlideSpec {
 /**
  * `mock` mode: prompt-only. Produces title-card SVG slides + Clip[].
  *
- * If ANTHROPIC_API_KEY is set, Claude writes a richer slide list with
+ * If the `gemini` CLI is installed, Gemini writes a richer slide list with
  * sub-text and per-slide beats. Otherwise we fall back to a simple
  * heuristic: split `describe` on newlines (or sentences) and use each
  * piece as a slide headline. Same output shape either way.
@@ -25,8 +23,12 @@ export async function mockFromPrompt(args: {
   outputDir: string;
   targetSeconds?: number;
 }): Promise<Clip[]> {
-  const slides = process.env.ANTHROPIC_API_KEY
-    ? await slidesFromClaude(args)
+  const slides = (await isGeminiAvailable())
+    ? await slidesFromGemini(args).catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[mock] gemini failed (${msg.slice(0, 200)}); falling back to heuristic split`);
+        return slidesFromHeuristic(args);
+      })
     : slidesFromHeuristic(args);
 
   const slidesDir = resolve(args.outputDir, "raw");
@@ -90,12 +92,11 @@ function condense(text: string, maxWords: number): string {
   return words.slice(0, maxWords).join(" ") + "…";
 }
 
-async function slidesFromClaude(args: {
+async function slidesFromGemini(args: {
   describe: string;
   targetSeconds?: number;
 }): Promise<SlideSpec[]> {
   const target = args.targetSeconds ?? 60;
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
   const prompt = `You're planning a short demo video about a project the speaker hasn't built yet.
 The speaker will record voiceover later; right now you're producing a SHOT LIST of title-card slides.
@@ -116,16 +117,7 @@ Output STRICT JSON, no prose:
   ]
 }`;
 
-  const res = await client.messages.create({
-    model: MODEL,
-    max_tokens: 1500,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const text = res.content
-    .map((b) => (b.type === "text" ? b.text : ""))
-    .join("")
-    .trim();
+  const text = await runGemini({ prompt });
   const json = JSON.parse(extractJson(text)) as { slides: SlideSpec[] };
   return json.slides;
 }
@@ -164,11 +156,3 @@ function escapeXml(s: string): string {
     .replace(/'/g, "&apos;");
 }
 
-function extractJson(text: string): string {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence?.[1]) return fence[1].trim();
-  const first = text.indexOf("{");
-  const last = text.lastIndexOf("}");
-  if (first === -1 || last === -1) throw new Error(`No JSON in output: ${text.slice(0, 200)}`);
-  return text.slice(first, last + 1);
-}
