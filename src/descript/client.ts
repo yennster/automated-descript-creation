@@ -144,7 +144,12 @@ export class DescriptClient {
 
   async getJob(jobId: string): Promise<{
     job_state: string;
-    result?: { status: string; project_id?: string; composition_id?: string };
+    result?: {
+      status: string;
+      project_id?: string;
+      composition_id?: string;
+      created_compositions?: { id: string; name: string }[];
+    };
   }> {
     const res = await request(`${BASE}/jobs/${jobId}`, {
       method: "GET",
@@ -156,7 +161,12 @@ export class DescriptClient {
     }
     return (await res.body.json()) as {
       job_state: string;
-      result?: { status: string; project_id?: string; composition_id?: string };
+      result?: {
+        status: string;
+        project_id?: string;
+        composition_id?: string;
+        created_compositions?: { id: string; name: string }[];
+      };
     };
   }
 
@@ -171,7 +181,7 @@ export class DescriptClient {
       const job = await this.getJob(jobId);
       if (job.job_state === "stopped") {
         if (!job.result) throw new Error(`Job ${jobId} stopped without result`);
-        if (job.result.status !== "ok") {
+        if (job.result.status !== "ok" && job.result.status !== "success") {
           throw new Error(`Job ${jobId} finished with status=${job.result.status}`);
         }
         return job.result;
@@ -194,7 +204,12 @@ export class DescriptClient {
     files: { path: string; displayName?: string; contentType?: string }[];
     compositionName?: string;
     waitForJob?: boolean;
-  }): Promise<{ projectId: string; projectUrl: string; jobId: string }> {
+  }): Promise<{
+    projectId: string;
+    projectUrl: string;
+    jobId: string;
+    compositionId?: string;
+  }> {
     const media: MediaSpec[] = args.files.map((f) => ({
       displayName: f.displayName ?? basename(f.path),
       filePath: f.path,
@@ -218,14 +233,48 @@ export class DescriptClient {
       }),
     );
 
-    if (args.waitForJob) {
-      await this.pollJob(created.jobId);
-    }
+    const jobResult = args.waitForJob ? await this.pollJob(created.jobId) : undefined;
+    const compositionId = jobResult?.composition_id ?? jobResult?.created_compositions?.[0]?.id;
 
     return {
       projectId: created.projectId,
       projectUrl: created.projectUrl,
       jobId: created.jobId,
+      compositionId,
+    };
+  }
+
+  async agentEdit(args: {
+    projectId: string;
+    prompt: string;
+    compositionId?: string;
+    waitForJob?: boolean;
+  }): Promise<{ jobId: string; projectUrl: string; projectChanged?: boolean }> {
+    const body: Record<string, unknown> = {
+      project_id: args.projectId,
+      prompt: args.prompt,
+    };
+    if (args.compositionId) body.composition_id = args.compositionId;
+
+    const res = await request(`${BASE}/jobs/agent`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(body),
+    });
+    if (res.statusCode >= 300) {
+      const text = await res.body.text();
+      throw new Error(`agentEdit ${res.statusCode}: ${text}`);
+    }
+
+    const json = (await res.body.json()) as {
+      job_id: string;
+      project_url: string;
+    };
+    const result = args.waitForJob ? await this.pollJob(json.job_id) : undefined;
+    return {
+      jobId: json.job_id,
+      projectUrl: json.project_url,
+      projectChanged: (result as { project_changed?: boolean } | undefined)?.project_changed,
     };
   }
 

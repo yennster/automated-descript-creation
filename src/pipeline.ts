@@ -60,9 +60,11 @@ export async function runPipeline(args: {
 
   const descript = new DescriptClient(token!, driveId);
   console.log(`[pipeline] uploading ${args.clips.length} clip(s) → Descript`);
+  console.log(`[pipeline] waiting for Descript to process the imported media`);
   const out = await descript.importLocalFiles({
     projectName: args.name,
     compositionName: args.name,
+    waitForJob: true,
     files: args.clips.map((c, i) => ({
       path: c.path,
       // keep clip order stable + display labels readable in Descript
@@ -71,6 +73,12 @@ export async function runPipeline(args: {
   });
 
   result.projectId = out.projectId;
+  console.log(`[pipeline] Descript import processed`);
+  await fitDescriptVideoToCanvas({
+    descript,
+    projectId: out.projectId,
+    compositionId: out.compositionId,
+  });
   console.log(`[pipeline] Descript project: ${out.projectUrl}`);
 
   const linkPath = join(args.outputDir, "descript-link.txt");
@@ -81,6 +89,32 @@ export async function runPipeline(args: {
   );
 
   return result;
+}
+
+async function fitDescriptVideoToCanvas(args: {
+  descript: DescriptClient;
+  projectId: string;
+  compositionId?: string;
+}): Promise<void> {
+  if (!args.compositionId) {
+    console.warn("[pipeline] Could not find Descript composition id; skipping canvas fit");
+    return;
+  }
+
+  console.log(`[pipeline] asking Descript to fit the video layer to the canvas`);
+  try {
+    await args.descript.agentEdit({
+      projectId: args.projectId,
+      compositionId: args.compositionId,
+      waitForJob: true,
+      prompt:
+        "In this composition, resize and reposition the imported video layer so it fills the entire video canvas. Center it, remove any margins or offset positioning, and keep the visible app/browser recording inside the frame. Do not add text, captions, music, cuts, or other edits.",
+    });
+    console.log(`[pipeline] Descript canvas fit processed`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[pipeline] Descript canvas fit failed: ${msg.slice(0, 300)}`);
+  }
 }
 
 function extOf(path: string): string {

@@ -115,10 +115,35 @@ A live example:
 ```bash
 npm run capture -- \
   --url "https://synthetic.jennyspeelman.dev/" \
-  --describe "Click through the app modes, move objects for motion, add objects onto a moving conveyor belt for object detection, etc." \
+  --describe "Click through the three main modes: motion, object detection, and visual anomaly." \
   --name "Synthetic Data Studio demo" \
   --format desktop \
   --actions ./example/my-flow.json
+```
+
+![Synthetic Data Studio capture output](example/output.png)
+
+During capture, the terminal prints action-by-action progress and fallback
+notes. The Descript link appears after import processing and a canvas-fit
+pass complete:
+
+```text
+[capture] loaded 15 action(s) from ./example/my-flow.json
+[capture] running 15 action(s) on desktop
+[capture] done action 1/15: Wait (2.3s)
+[capture] used label click fallback for radio input
+[capture] done action 2/15: Click "input[name='procedural-motion'][value='throw']" (3.8s)
+[capture] done action 6/15: Click "Object detection" (29.6s)
+[capture] done action 12/15: Click "Visual anomaly" (2.6s)
+[capture] done action 15/15: Wait (2.3s)
+[pipeline] generating narration for 1 clips
+[pipeline] wrote ./output/<run-id>/transcript.md
+[pipeline] uploading 1 clip(s) → Descript
+[pipeline] waiting for Descript to process the imported media
+[pipeline] Descript import processed
+[pipeline] asking Descript to fit the video layer to the canvas
+[pipeline] Descript canvas fit processed
+[pipeline] Descript project: https://web.descript.com/<project-id>
 ```
 
 ## Click-through actions

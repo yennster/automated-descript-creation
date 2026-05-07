@@ -1,59 +1,53 @@
 # Synthetic Data Studio Demo Transcript
 
-Short version focused on the three main modes: Motion, Object detection, and Visual anomaly.
+No-scroll version. This keeps the browser content in a stable recording area and only uses controls visible near the top of the app.
 
 | Clip | Timecode | Narration |
 | --- | --- | --- |
-| 01 | 00:00.000 - 00:01.500 | Start on Motion mode, with the cube ready for synthetic accelerometer data. |
-| 02 | 00:01.500 - 00:03.500 | Choose throw to demonstrate motion data generated from a visible object movement. |
-| 03 | 00:03.500 - 00:05.500 | Keep the motion demo short by generating just one labeled IMU sample. |
-| 04 | 00:05.500 - 00:07.500 | Generate the throw sample while the cube moves and accelerometer traces are captured. |
-| 05 | 00:07.500 - 00:09.000 | Let the procedural throw finish so the motion mode result feels complete. |
-| 06 | 00:09.000 - 00:11.000 | Switch to object detection for synthetic images with labels and bounding boxes. |
-| 07 | 00:11.000 - 00:12.500 | Pause while the detection scene and virtual camera preview come into view. |
-| 08 | 00:12.500 - 00:14.500 | Enable the conveyor belt to add realistic motion for object detection examples. |
-| 09 | 00:14.500 - 00:16.500 | Give the object a clear class label before adding it to the scene. |
-| 10 | 00:16.500 - 00:18.500 | Add the cube so it rides the moving belt through the camera view. |
-| 11 | 00:18.500 - 00:20.000 | Let the cube settle onto the conveyor and enter the preview frame. |
-| 12 | 00:20.000 - 00:22.000 | Switch to visual anomaly mode using the same synthetic scene and capture workflow. |
-| 13 | 00:22.000 - 00:23.500 | Hold briefly on anomaly mode to show the third workflow is now active. |
-| 14 | 00:23.500 - 00:27.500 | Scroll to the capture controls where anomaly labels and image batches are created. |
-| 15 | 00:27.500 - 00:29.500 | Set the batch label to anomaly so the capture is grouped correctly. |
-| 16 | 00:29.500 - 00:31.500 | Capture one synthetic anomaly frame from the virtual camera preview. |
-| 17 | 00:31.500 - 00:33.000 | End on the saved capture state, showing the three-mode dataset workflow. |
+| 01 | 00:00.000 - 00:01.500 | Start on Motion mode, showing the cube and accelerometer controls already in frame. |
+| 02 | 00:01.500 - 00:03.500 | Choose throw to show that motion samples can come from a visible object movement. |
+| 03 | 00:03.500 - 00:05.500 | Keep the motion segment short by generating a single labeled IMU sample. |
+| 04 | 00:05.500 - 00:07.500 | Generate one throw sample while the cube motion produces synthetic sensor data. |
+| 05 | 00:07.500 - 00:09.000 | Let the motion finish so the first mode has a clear visible payoff. |
+| 06 | 00:09.000 - 00:11.000 | Switch to object detection, changing the workspace to images and bounding boxes. |
+| 07 | 00:11.000 - 00:12.500 | Pause on the virtual camera preview and object controls for the second mode. |
+| 08 | 00:12.500 - 00:14.500 | Enable the conveyor belt so detection examples include continuous object motion. |
+| 09 | 00:14.500 - 00:16.500 | Label the object clearly before adding it to the synthetic detection scene. |
+| 10 | 00:16.500 - 00:18.500 | Add a cube onto the belt so it rides through the camera view. |
+| 11 | 00:18.500 - 00:20.000 | Let the belt and cube stay visible as the detection scene comes alive. |
+| 12 | 00:20.000 - 00:22.000 | Switch to visual anomaly mode, reusing the same generated scene for image datasets. |
+| 13 | 00:22.000 - 00:23.500 | Hold on the anomaly workspace so viewers see the third mode activate. |
+| 14 | 00:23.500 - 00:25.500 | Return to Motion to close the loop across all three dataset modes. |
+| 15 | 00:25.500 - 00:27.000 | End with the app back in frame and the mode tour complete. |
 
 ## Descript Recording Script
 
-Start on Motion mode, with the cube ready for synthetic accelerometer data.
+Start on Motion mode, showing the cube and accelerometer controls already in frame.
 
-Choose throw to demonstrate motion data generated from a visible object movement.
+Choose throw to show that motion samples can come from a visible object movement.
 
-Keep the motion demo short by generating just one labeled IMU sample.
+Keep the motion segment short by generating a single labeled IMU sample.
 
-Generate the throw sample while the cube moves and accelerometer traces are captured.
+Generate one throw sample while the cube motion produces synthetic sensor data.
 
-Let the procedural throw finish so the motion mode result feels complete.
+Let the motion finish so the first mode has a clear visible payoff.
 
-Switch to object detection for synthetic images with labels and bounding boxes.
+Switch to object detection, changing the workspace to images and bounding boxes.
 
-Pause while the detection scene and virtual camera preview come into view.
+Pause on the virtual camera preview and object controls for the second mode.
 
-Enable the conveyor belt to add realistic motion for object detection examples.
+Enable the conveyor belt so detection examples include continuous object motion.
 
-Give the object a clear class label before adding it to the scene.
+Label the object clearly before adding it to the synthetic detection scene.
 
-Add the cube so it rides the moving belt through the camera view.
+Add a cube onto the belt so it rides through the camera view.
 
-Let the cube settle onto the conveyor and enter the preview frame.
+Let the belt and cube stay visible as the detection scene comes alive.
 
-Switch to visual anomaly mode using the same synthetic scene and capture workflow.
+Switch to visual anomaly mode, reusing the same generated scene for image datasets.
 
-Hold briefly on anomaly mode to show the third workflow is now active.
+Hold on the anomaly workspace so viewers see the third mode activate.
 
-Scroll to the capture controls where anomaly labels and image batches are created.
+Return to Motion to close the loop across all three dataset modes.
 
-Set the batch label to anomaly so the capture is grouped correctly.
-
-Capture one synthetic anomaly frame from the virtual camera preview.
-
-End on the saved capture state, showing the three-mode dataset workflow.
+End with the app back in frame and the mode tour complete.

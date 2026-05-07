@@ -3,91 +3,79 @@
     {
       "type": "wait",
       "durationMs": 1500,
-      "beat": "Start on Motion mode, with the cube ready for synthetic accelerometer data."
+      "beat": "Start on Motion mode, showing the cube and accelerometer controls already in frame."
     },
     {
       "type": "click",
       "selector": "input[name='procedural-motion'][value='throw']",
-      "beat": "Choose throw to demonstrate motion data generated from a visible object movement."
+      "beat": "Choose throw to show that motion samples can come from a visible object movement."
     },
     {
       "type": "fill",
       "selector": "aside.sidebar > .card:nth-of-type(4) .row label.field:first-child input[type='number']",
       "value": "1",
-      "beat": "Keep the motion demo short by generating just one labeled IMU sample."
+      "beat": "Keep the motion segment short by generating a single labeled IMU sample."
     },
     {
       "type": "click",
       "text": "⚡ Generate & download 1 samples",
-      "beat": "Generate the throw sample while the cube moves and accelerometer traces are captured."
+      "beat": "Generate one throw sample while the cube motion produces synthetic sensor data."
     },
     {
       "type": "wait",
       "durationMs": 1500,
-      "beat": "Let the procedural throw finish so the motion mode result feels complete."
+      "beat": "Let the motion finish so the first mode has a clear visible payoff."
     },
     {
       "type": "click",
       "text": "Object detection",
-      "beat": "Switch to object detection for synthetic images with labels and bounding boxes."
+      "beat": "Switch to object detection, changing the workspace to images and bounding boxes."
     },
     {
       "type": "wait",
       "durationMs": 1500,
-      "beat": "Pause while the detection scene and virtual camera preview come into view."
+      "beat": "Pause on the virtual camera preview and object controls for the second mode."
     },
     {
       "type": "click",
       "selector": "aside.sidebar > .card:nth-of-type(2) input[type='checkbox']",
-      "beat": "Enable the conveyor belt to add realistic motion for object detection examples."
+      "beat": "Enable the conveyor belt so detection examples include continuous object motion."
     },
     {
       "type": "fill",
       "selector": "aside.sidebar > .card:nth-of-type(3) input[placeholder='label']",
       "value": "cube_on_belt",
-      "beat": "Give the object a clear class label before adding it to the scene."
+      "beat": "Label the object clearly before adding it to the synthetic detection scene."
     },
     {
       "type": "click",
       "text": "+ Add",
-      "beat": "Add the cube so it rides the moving belt through the camera view."
+      "beat": "Add a cube onto the belt so it rides through the camera view."
     },
     {
       "type": "wait",
       "durationMs": 1500,
-      "beat": "Let the cube settle onto the conveyor and enter the preview frame."
+      "beat": "Let the belt and cube stay visible as the detection scene comes alive."
     },
     {
       "type": "click",
       "text": "Visual anomaly",
-      "beat": "Switch to visual anomaly mode using the same synthetic scene and capture workflow."
+      "beat": "Switch to visual anomaly mode, reusing the same generated scene for image datasets."
     },
     {
       "type": "wait",
       "durationMs": 1500,
-      "beat": "Hold briefly on anomaly mode to show the third workflow is now active."
-    },
-    {
-      "type": "scroll",
-      "direction": "down",
-      "durationMs": 4000,
-      "beat": "Scroll to the capture controls where anomaly labels and image batches are created."
-    },
-    {
-      "type": "fill",
-      "selector": ".capture-card input[placeholder='normal | anomaly']",
-      "value": "anomaly",
-      "beat": "Set the batch label to anomaly so the capture is grouped correctly."
+      "beat": "Hold on the anomaly workspace so viewers see the third mode activate."
     },
     {
       "type": "click",
-      "text": "📸 Capture frame",
-      "beat": "Capture one synthetic anomaly frame from the virtual camera preview."
+      "text": "Motion",
+      "beat": "Return to Motion to close the loop across all three dataset modes."
     },
     {
       "type": "wait",
       "durationMs": 1500,
-      "beat": "End on the saved capture state, showing the three-mode dataset workflow."
+      "beat": "End with the app back in frame and the mode tour complete."
     }
   ]
 }
