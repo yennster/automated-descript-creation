@@ -1,0 +1,26 @@
+{
+  "actions": [
+    {
+      "type": "wait",
+      "durationMs": 2000,
+      "beat": "Open the landing page; viewer sees the headline."
+    },
+    {
+      "type": "scroll",
+      "direction": "down",
+      "durationMs": 4000,
+      "beat": "Scroll through the page so the viewer sees what's below the fold."
+    },
+    {
+      "type": "wait",
+      "durationMs": 1000,
+      "beat": "Pause at the bottom — let the takeaway register."
+    },
+    {
+      "type": "scroll",
+      "direction": "up",
+      "durationMs": 3000,
+      "beat": "Scroll back up to the headline to wrap up."
+    }
+  ]
+}

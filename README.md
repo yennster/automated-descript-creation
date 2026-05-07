@@ -9,7 +9,7 @@ over.
 
 | Mode      | Input                                                  | What it does                                                            |
 | --------- | ------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `capture` | URL of a deployed app + a description of what to demo  | Drives the app in headless Chromium, records a 4K tour by default.      |
+| `capture` | URL + a description (and optionally a click-through plan) | Drives the app in headless Chromium, records the run, builds beats per step. |
 | `stitch`  | A folder of clips you recorded yourself                | Uploads them in order; auto-detects durations via `ffprobe`.            |
 | `mock`    | Just a prompt / feature description                    | Generates title-card SVG slides so you can record over them.            |
 
@@ -54,12 +54,19 @@ npm run capture -- \
   --describe "Sign up flow, then create a project, then invite a teammate" \
   --name "MyApp demo"
 
-# capture in BOTH desktop 4K and mobile portrait (Shorts/Reels) in one run
+# capture in BOTH desktop and mobile portrait (Shorts/Reels) in one run
 npm run capture -- \
   --url https://my-app.vercel.app \
   --describe "..." \
   --name "MyApp demo" \
   --format desktop,mobile
+
+# capture an actual click-through (recommended for real demos)
+npm run capture -- \
+  --url https://my-app.vercel.app \
+  --describe "Sign up flow then create a project" \
+  --name "MyApp demo" \
+  --actions ./my-flow.json
 
 # stitch: bring your own clips
 npm run stitch -- \
@@ -72,6 +79,45 @@ npm run mock -- \
   --describe "A todo app with AI subtask generation. 60 seconds." \
   --name "MyApp demo"
 ```
+
+## Click-through actions
+
+By default `capture` does an automated scroll tour. To actually drive the UI
+through specific steps, pass an action plan one of two ways:
+
+1. **`--actions <path>`** — a JSON file you author. Works without any AI key.
+   See `examples/actions-example.json` for a minimal example. Schema:
+
+   ```json
+   {
+     "actions": [
+       { "type": "click",  "text": "Visible button text",      "beat": "what to narrate" },
+       { "type": "click",  "selector": ".my-css-selector",     "beat": "..." },
+       { "type": "fill",   "selector": "input[name=email]",
+                            "value": "demo@example.com",        "beat": "..." },
+       { "type": "scroll", "direction": "down", "durationMs": 4000, "beat": "..." },
+       { "type": "wait",   "durationMs": 1500,                  "beat": "..." },
+       { "type": "press",  "key": "Enter",                      "beat": "..." }
+     ]
+   }
+   ```
+
+   `click` prefers `text` (Playwright's `getByText`, robust to layout changes)
+   over `selector`. The `beat` field is what the speaker narrates while that
+   step is on screen.
+
+2. **`ANTHROPIC_API_KEY` set** — if no `--actions` path is given but the key
+   is present, capture takes a screenshot of the loaded page and asks Claude
+   (with vision) to plan an action list from your `--describe` text. Useful
+   for one-off demos where you don't want to author JSON.
+
+Either way, each action gets its own time-ranged beat in `transcript.md` —
+so when you record voiceover in Descript, you know exactly what to say
+while each step plays back.
+
+If a click fails (e.g. the named button isn't on screen), the run logs a
+warning and continues. Bad steps just become silent gaps; the rest of the
+flow still records.
 
 ## Capture formats
 

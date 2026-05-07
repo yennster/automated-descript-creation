@@ -5,6 +5,12 @@ import { resolve } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { runPipeline } from "./pipeline.js";
 import { captureUrl, isCaptureFormat, FORMAT_PRESETS, type CaptureFormat } from "./modes/capture.js";
+import {
+  loadActionsFromFile,
+  planActionsWithClaude,
+  type CaptureAction,
+} from "./modes/capture-actions.js";
+import { chromium } from "playwright";
 import { stitchClips } from "./modes/stitch.js";
 import { mockFromPrompt } from "./modes/mock.js";
 
@@ -24,15 +30,25 @@ program
     `Comma-separated formats. Choices: ${Object.keys(FORMAT_PRESETS).join(", ")}`,
     "desktop",
   )
+  .option(
+    "-a, --actions <path>",
+    "Path to a JSON file with click-through actions. See README for schema.",
+  )
   .option("--no-upload", "Skip Descript upload, just generate transcript locally")
   .action(async (opts) => {
     const formats = parseFormats(opts.format);
     const outputDir = await prepareOutputDir(opts.name);
+    const actions = await resolveCaptureActions({
+      actionsPath: opts.actions,
+      describe: opts.describe,
+      url: opts.url,
+    });
     const clips = await captureUrl({
       url: opts.url,
       describe: opts.describe,
       outputDir,
       formats,
+      actions,
     });
     await runPipelineGrouped({
       baseName: opts.name,
@@ -119,6 +135,45 @@ async function runPipelineGrouped(args: {
       outputDir: subdir,
       uploadToDescript: args.uploadToDescript,
     });
+  }
+}
+
+/**
+ * Decide which click-through actions to run, in priority order:
+ *  1. --actions <path> if provided
+ *  2. ANTHROPIC_API_KEY set → ask Claude to plan from describe + screenshot
+ *  3. neither → undefined (fall back to scroll tour)
+ */
+async function resolveCaptureActions(args: {
+  actionsPath?: string;
+  describe: string;
+  url: string;
+}): Promise<CaptureAction[] | undefined> {
+  if (args.actionsPath) {
+    const list = await loadActionsFromFile(args.actionsPath);
+    console.log(`[capture] loaded ${list.length} action(s) from ${args.actionsPath}`);
+    return list;
+  }
+  if (!process.env.ANTHROPIC_API_KEY) return undefined;
+
+  console.log(`[capture] planning actions with Claude vision (no --actions provided)`);
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await page.goto(args.url, { waitUntil: "networkidle", timeout: 30_000 });
+    await page.waitForTimeout(1500);
+    const screenshotPng = await page.screenshot({ type: "png" });
+    const planned = await planActionsWithClaude({
+      describe: args.describe,
+      screenshotPng,
+      url: args.url,
+    });
+    if (planned) {
+      console.log(`[capture] planner produced ${planned.length} action(s)`);
+    }
+    return planned ?? undefined;
+  } finally {
+    await browser.close();
   }
 }
 
