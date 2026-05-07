@@ -5,57 +5,53 @@ import type { Clip } from "../types.js";
 
 export type CaptureFormat =
   | "desktop"
-  | "desktop-1080p"
+  | "desktop-4k"
   | "desktop-720p"
   | "mobile"
   | "mobile-720p";
 
 interface FormatSpec {
   label: string;
-  /** Logical viewport — what the page sees as window.innerWidth/Height. */
+  /**
+   * The viewport dimensions. We deliberately make this 1:1 with the
+   * recordVideo size: Playwright records the framebuffer at the logical
+   * viewport, so a recordVideo size larger than the viewport gets gray
+   * letterbox padding instead of pixel-perfect output. Setting them equal
+   * means the page fills the recording.
+   *
+   * Trade-off: at 4K, the page renders into a 3840-wide viewport — most
+   * apps designed for ~1920 desktop will show tiny text. Default desktop
+   * is 1080p; opt into desktop-4k explicitly.
+   */
   viewport: { width: number; height: number };
-  /** DPR. >1 means the page renders at higher density (Retina-style). */
-  deviceScaleFactor: number;
-  /** Final video dimensions. Should equal viewport × deviceScaleFactor for crisp output. */
-  recordSize: { width: number; height: number };
-  /** Sets isMobile + hasTouch on the context so mobile breakpoints kick in. */
+  /** Sets isMobile + hasTouch on the context so mobile breakpoints fire. */
   isMobile: boolean;
 }
 
 export const FORMAT_PRESETS: Record<CaptureFormat, FormatSpec> = {
   desktop: {
-    label: "Desktop 4K (16:9)",
-    viewport: { width: 1920, height: 1080 },
-    deviceScaleFactor: 2,
-    recordSize: { width: 3840, height: 2160 },
-    isMobile: false,
-  },
-  "desktop-1080p": {
     label: "Desktop 1080p (16:9)",
     viewport: { width: 1920, height: 1080 },
-    deviceScaleFactor: 1,
-    recordSize: { width: 1920, height: 1080 },
+    isMobile: false,
+  },
+  "desktop-4k": {
+    label: "Desktop 4K (16:9) — text will look small on apps designed for 1920px",
+    viewport: { width: 3840, height: 2160 },
     isMobile: false,
   },
   "desktop-720p": {
     label: "Desktop 720p (16:9)",
     viewport: { width: 1280, height: 720 },
-    deviceScaleFactor: 1,
-    recordSize: { width: 1280, height: 720 },
     isMobile: false,
   },
   mobile: {
     label: "Mobile portrait 1080×1920 (9:16) — Shorts/Reels",
-    viewport: { width: 540, height: 960 },
-    deviceScaleFactor: 2,
-    recordSize: { width: 1080, height: 1920 },
+    viewport: { width: 1080, height: 1920 },
     isMobile: true,
   },
   "mobile-720p": {
     label: "Mobile portrait 720×1280 (9:16)",
-    viewport: { width: 360, height: 640 },
-    deviceScaleFactor: 2,
-    recordSize: { width: 720, height: 1280 },
+    viewport: { width: 720, height: 1280 },
     isMobile: true,
   },
 };
@@ -113,10 +109,9 @@ async function captureOneFormat(args: {
 
   const context = await args.browser.newContext({
     viewport: spec.viewport,
-    deviceScaleFactor: spec.deviceScaleFactor,
     isMobile: spec.isMobile,
     hasTouch: spec.isMobile,
-    recordVideo: { dir: formatDir, size: spec.recordSize },
+    recordVideo: { dir: formatDir, size: spec.viewport },
   });
   const page = await context.newPage();
 
