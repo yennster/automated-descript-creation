@@ -22,26 +22,47 @@ All three converge on the same output:
 
 ## AI is optional
 
-The AI bits use the [`gemini` CLI](https://github.com/google-gemini/gemini-cli)
-— no API key needed; auth comes from your interactive `gemini` login. It's
-used for three things:
+There is no built-in AI dependency. The tool produces the Descript project,
+clips/slides, timing, and a `transcript.md` with narration placeholders for
+you to fill in.
 
-- Narration generation (all modes)
-- Slide outlines (`mock` mode)
-- Click-through action planning from a screenshot (`capture` mode, when
-  `--actions` isn't given)
+For real app demos, the recommended workflow is to ask Claude, ChatGPT Codex, or
+another AI assistant to draft the `--actions` JSON file for you. Give it the
+app URL, your demo goal, then ask for JSON matching the schema below. Save that
+JSON and pass it with `--actions ./my-flow.json`.
 
-Without `gemini` installed, everything else still works:
+Example prompt:
 
-- The Descript project, clips/slides, and timing all still get produced.
-- `transcript.md` is written with `[Write narration for ...]` placeholders so
-  you can fill in the script yourself.
-- `mock` falls back to a heuristic — newlines or sentences in your `--describe`
-  become slide headlines.
-- `capture` falls back to an automated scroll tour.
+```text
+Create a strict JSON action plan for this web app demo.
 
-Install: `npm i -g @google/gemini-cli`, then run `gemini` once interactively
-to authenticate.
+App URL: <url>
+Demo goal: <what should happen in the video>
+
+Take screenshots of the app. Use only elements that are visible now or clearly reached by earlier steps.
+
+Use only these action types:
+- { "type": "click", "text": "exact visible button or link text", "beat": "10-20 word narration cue" }
+- { "type": "click", "selector": "CSS selector", "beat": "10-20 word narration cue" }
+- { "type": "fill", "selector": "CSS selector", "value": "what to type", "beat": "10-20 word narration cue" }
+- { "type": "scroll", "direction": "down", "durationMs": 4000, "beat": "10-20 word narration cue" }
+- { "type": "wait", "durationMs": 1500, "beat": "10-20 word narration cue" }
+- { "type": "press", "key": "Enter", "beat": "10-20 word narration cue" }
+
+Prefer click-by-text over selectors. Output JSON only:
+{ "actions": [ ... ] }
+
+Save it as ./my-flow.json
+
+Also create a `transcript.md` file with narration broken into beats,
+timed to the clips, so I can record my voice in Descript directly into the project
+```
+
+Without an `--actions` file:
+
+- `capture` records an automated scroll tour.
+- `mock` uses newlines or sentences in your `--describe` as slide headlines.
+- `transcript.md` uses `[Write narration for ...]` placeholders.
 
 ## Setup
 
@@ -92,37 +113,32 @@ npm run mock -- \
 ## Click-through actions
 
 By default `capture` does an automated scroll tour. To actually drive the UI
-through specific steps, pass an action plan one of two ways:
+through specific steps, pass an action plan with `--actions <path>`. You can
+write it yourself or ask Claude, ChatGPT, or another AI assistant to make it
+from your demo goal plus a screenshot of the app. See
+`examples/actions-example.json` for a minimal example. Schema:
 
-1. **`--actions <path>`** — a JSON file you author. Works without any AI key.
-   See `examples/actions-example.json` for a minimal example. Schema:
+```json
+{
+  "actions": [
+    { "type": "click",  "text": "Visible button text",      "beat": "what to narrate" },
+    { "type": "click",  "selector": ".my-css-selector",     "beat": "..." },
+    { "type": "fill",   "selector": "input[name=email]",
+                         "value": "demo@example.com",        "beat": "..." },
+    { "type": "scroll", "direction": "down", "durationMs": 4000, "beat": "..." },
+    { "type": "wait",   "durationMs": 1500,                  "beat": "..." },
+    { "type": "press",  "key": "Enter",                      "beat": "..." }
+  ]
+}
+```
 
-   ```json
-   {
-     "actions": [
-       { "type": "click",  "text": "Visible button text",      "beat": "what to narrate" },
-       { "type": "click",  "selector": ".my-css-selector",     "beat": "..." },
-       { "type": "fill",   "selector": "input[name=email]",
-                            "value": "demo@example.com",        "beat": "..." },
-       { "type": "scroll", "direction": "down", "durationMs": 4000, "beat": "..." },
-       { "type": "wait",   "durationMs": 1500,                  "beat": "..." },
-       { "type": "press",  "key": "Enter",                      "beat": "..." }
-     ]
-   }
-   ```
+`click` prefers `text` (Playwright's `getByText`, robust to layout changes)
+over `selector`. The `beat` field is what the speaker narrates while that
+step is on screen.
 
-   `click` prefers `text` (Playwright's `getByText`, robust to layout changes)
-   over `selector`. The `beat` field is what the speaker narrates while that
-   step is on screen.
-
-2. **`gemini` CLI installed** — if no `--actions` path is given, capture takes
-   a screenshot of the loaded page and asks Gemini (with vision via the
-   `gemini` CLI) to plan an action list from your `--describe` text. Useful
-   for one-off demos where you don't want to author JSON.
-
-Either way, each action gets its own time-ranged beat in `transcript.md` —
-so when you record voiceover in Descript, you know exactly what to say
-while each step plays back.
+Each action gets its own time-ranged beat in `transcript.md` — so when you
+record voiceover in Descript, you know exactly what to say while each step
+plays back.
 
 If a click fails (e.g. the named button isn't on screen), the run logs a
 warning and continues. Bad steps just become silent gaps; the rest of the

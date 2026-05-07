@@ -1,8 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Clip } from "../types.js";
-import { runGemini, extractJson, isGeminiAvailable } from "../ai/gemini.js";
-import { withSpinner } from "../ai/spinner.js";
 
 interface SlideSpec {
   headline: string;
@@ -14,23 +12,15 @@ interface SlideSpec {
 /**
  * `mock` mode: prompt-only. Produces title-card SVG slides + Clip[].
  *
- * If the `gemini` CLI is installed, Gemini writes a richer slide list with
- * sub-text and per-slide beats. Otherwise we fall back to a simple
- * heuristic: split `describe` on newlines (or sentences) and use each
- * piece as a slide headline. Same output shape either way.
+ * Uses a simple heuristic: split `describe` on newlines (or sentences) and
+ * use each piece as a slide headline.
  */
 export async function mockFromPrompt(args: {
   describe: string;
   outputDir: string;
   targetSeconds?: number;
 }): Promise<Clip[]> {
-  const slides = (await isGeminiAvailable())
-    ? await slidesFromGemini(args).catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[mock] gemini failed (${msg.slice(0, 200)}); falling back to heuristic split`);
-        return slidesFromHeuristic(args);
-      })
-    : slidesFromHeuristic(args);
+  const slides = slidesFromHeuristic(args);
 
   const slidesDir = resolve(args.outputDir, "raw");
   await mkdir(slidesDir, { recursive: true });
@@ -68,9 +58,7 @@ function slidesFromHeuristic(args: { describe: string; targetSeconds?: number })
 
   const perSlide = Math.max(4, Math.min(8, Math.round(target / chunks.length)));
 
-  console.log(
-    `[mock] no AI key — heuristic-split into ${chunks.length} slides @ ${perSlide}s each`,
-  );
+  console.log(`[mock] heuristic-split into ${chunks.length} slides @ ${perSlide}s each`);
 
   return chunks.map((c, i) => ({
     headline: condense(c, 6),
@@ -91,36 +79,6 @@ function condense(text: string, maxWords: number): string {
   const words = text.replace(/\s+/g, " ").trim().split(" ");
   if (words.length <= maxWords) return words.join(" ");
   return words.slice(0, maxWords).join(" ") + "…";
-}
-
-async function slidesFromGemini(args: {
-  describe: string;
-  targetSeconds?: number;
-}): Promise<SlideSpec[]> {
-  const target = args.targetSeconds ?? 60;
-
-  const prompt = `You're planning a short demo video about a project the speaker hasn't built yet.
-The speaker will record voiceover later; right now you're producing a SHOT LIST of title-card slides.
-
-Project pitch:
-${args.describe}
-
-Constraints:
-- Total target length: ~${target} seconds.
-- Each slide holds for 4–8 seconds (pick a duration per slide that fits the beat).
-- 5 to 10 slides total.
-- Each slide has a short headline (≤6 words) and an optional sub-line (≤12 words).
-
-Output STRICT JSON, no prose:
-{
-  "slides": [
-    { "headline": "...", "sub": "optional", "durationSec": 6, "beat": "what the viewer is meant to take away" }
-  ]
-}`;
-
-  const text = await withSpinner("Gemini planning slides", () => runGemini({ prompt }));
-  const json = JSON.parse(extractJson(text)) as { slides: SlideSpec[] };
-  return json.slides;
 }
 
 function renderSlideSvg(headline: string, sub?: string): string {
@@ -156,4 +114,3 @@ function escapeXml(s: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
 }
-

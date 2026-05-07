@@ -1,9 +1,5 @@
-import type { Page } from "playwright";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { runGemini, extractJson, isGeminiAvailable } from "../ai/gemini.js";
-import { withSpinner } from "../ai/spinner.js";
+import type { Locator, Page } from "playwright";
+import { readFile } from "node:fs/promises";
 
 export type CaptureAction =
   | { type: "click"; text?: string; selector?: string; beat: string }
@@ -11,6 +7,11 @@ export type CaptureAction =
   | { type: "scroll"; direction: "up" | "down"; durationMs?: number; beat: string }
   | { type: "wait"; durationMs: number; beat?: string }
   | { type: "press"; key: string; beat: string };
+
+type ClickAction = Extract<CaptureAction, { type: "click" }>;
+
+const CLICK_TIMEOUT_MS = 10_000;
+const FALLBACK_CLICK_TIMEOUT_MS = 2_500;
 
 /** A beat associated with a time range inside a single recorded clip. */
 export interface ActionBeat {
@@ -70,17 +71,9 @@ export async function runActionFlow(args: {
 
 async function executeAction(page: Page, action: CaptureAction): Promise<void> {
   switch (action.type) {
-    case "click": {
-      const target = action.text
-        ? page.getByText(action.text, { exact: false }).first()
-        : action.selector
-          ? page.locator(action.selector).first()
-          : null;
-      if (!target) throw new Error("click action requires text or selector");
-      await target.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
-      await target.click({ timeout: 10_000 });
+    case "click":
+      await clickAction(page, action);
       return;
-    }
     case "fill": {
       const target = page.locator(action.selector).first();
       await target.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
@@ -99,6 +92,135 @@ async function executeAction(page: Page, action: CaptureAction): Promise<void> {
       await page.keyboard.press(action.key);
       return;
   }
+}
+
+async function clickAction(page: Page, action: ClickAction): Promise<void> {
+  if (action.selector) {
+    await clickLocator(page.locator(action.selector).first(), `selector "${action.selector}"`);
+    return;
+  }
+  if (!action.text) throw new Error("click action requires text or selector");
+
+  const candidates = [
+    {
+      locator: page.getByRole("button", { name: action.text, exact: false }).first(),
+      description: `button text "${action.text}"`,
+    },
+    {
+      locator: page.getByRole("link", { name: action.text, exact: false }).first(),
+      description: `link text "${action.text}"`,
+    },
+    {
+      locator: page.getByLabel(action.text, { exact: false }).first(),
+      description: `label "${action.text}"`,
+    },
+    {
+      locator: page.getByText(action.text, { exact: false }).first(),
+      description: `text "${action.text}"`,
+    },
+  ];
+
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    const count = await candidate.locator.count();
+    if (count === 0) continue;
+    try {
+      await clickLocator(candidate.locator, candidate.description);
+      return;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (lastError instanceof Error) throw lastError;
+  throw new Error(`No clickable target found for text "${action.text}"`);
+}
+
+async function clickLocator(target: Locator, description: string): Promise<void> {
+  const count = await target.count();
+  if (count === 0) throw new Error(`No element found for ${description}`);
+
+  if (await clickInputControl(target)) return;
+
+  await target.scrollIntoViewIfNeeded({ timeout: FALLBACK_CLICK_TIMEOUT_MS }).catch(() => {});
+  try {
+    await target.click({ timeout: CLICK_TIMEOUT_MS });
+    return;
+  } catch (normalClickError) {
+    try {
+      await target.evaluate((el) => {
+        const clickable = el as HTMLElement & { click?: () => void };
+        if (typeof clickable.click === "function") {
+          clickable.click();
+        } else {
+          el.dispatchEvent(
+            new MouseEvent("click", { bubbles: true, cancelable: true, view: window }),
+          );
+        }
+      });
+      console.log(`[capture] used DOM click fallback for ${description}`);
+      return;
+    } catch {
+      try {
+        await target.click({ force: true, timeout: FALLBACK_CLICK_TIMEOUT_MS });
+        console.log(`[capture] used forced click fallback for ${description}`);
+        return;
+      } catch (forceClickError) {
+        const normalMsg = normalClickError instanceof Error
+          ? normalClickError.message
+          : String(normalClickError);
+        const forceMsg = forceClickError instanceof Error
+          ? forceClickError.message
+          : String(forceClickError);
+        throw new Error(`${normalMsg}; forced click fallback failed: ${forceMsg}`);
+      }
+    }
+  }
+}
+
+async function clickInputControl(target: Locator): Promise<boolean> {
+  const inputType = await target
+    .evaluate((el) => (el instanceof HTMLInputElement ? el.type : null))
+    .catch(() => null);
+  if (inputType !== "radio" && inputType !== "checkbox") return false;
+
+  try {
+    await target.check({ timeout: FALLBACK_CLICK_TIMEOUT_MS });
+    return true;
+  } catch {}
+
+  try {
+    await target.check({ force: true, timeout: FALLBACK_CLICK_TIMEOUT_MS });
+    console.log(`[capture] used forced check fallback for ${inputType} input`);
+    return true;
+  } catch {}
+
+  const clickedLabel = await target
+    .evaluate((el) => {
+      const input = el as HTMLInputElement;
+      const label = input.labels?.[0];
+      if (!label) return false;
+      label.click();
+      return true;
+    })
+    .catch(() => false);
+  if (clickedLabel) {
+    console.log(`[capture] used label click fallback for ${inputType} input`);
+    return true;
+  }
+
+  await target.evaluate((el) => {
+    const input = el as HTMLInputElement;
+    input.click();
+    if (!input.checked) {
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked");
+      descriptor?.set?.call(input, true);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+  console.log(`[capture] used DOM input fallback for ${inputType} input`);
+  return true;
 }
 
 /** Smooth rAF scroll; same trick as capture.ts. Body-as-string avoids tsx __name. */
@@ -179,52 +301,4 @@ function validateAction(a: unknown): void {
     default:
       throw new Error(`Unknown action type: ${type}`);
   }
-}
-
-/**
- * Use Gemini (with vision via the `gemini` CLI) to plan a click-through demo
- * from the describe text + a screenshot of the loaded page.
- *
- * Returns null if the CLI isn't installed so the caller can fall back gracefully.
- */
-export async function planActionsWithGemini(args: {
-  describe: string;
-  screenshotPng: Buffer;
-  url: string;
-}): Promise<CaptureAction[] | null> {
-  if (!(await isGeminiAvailable())) return null;
-
-  // Gemini CLI's @file syntax wants a real file on disk.
-  const dir = join(tmpdir(), "adc-planner");
-  await mkdir(dir, { recursive: true });
-  const imagePath = join(dir, `screenshot-${Date.now()}.png`);
-  await writeFile(imagePath, args.screenshotPng);
-
-  const prompt = `You're scripting a short demo video of a web app. The attached screenshot shows the app's current state at ${args.url}.
-
-What the speaker wants to demo:
-${args.describe}
-
-Output a STRICT JSON action plan — 3 to 7 steps — that drives the demo. Use only these action types:
-
-  { "type": "click", "text": "exact visible button or link text", "beat": "10-20 word narration cue" }
-  { "type": "fill", "selector": "CSS selector for the input", "value": "what to type", "beat": "..." }
-  { "type": "scroll", "direction": "down" | "up", "durationMs": 4000, "beat": "..." }
-  { "type": "wait", "durationMs": 1500, "beat": "..." }
-
-Rules:
-- Prefer click-by-text over selectors. Use exact text visible in the screenshot.
-- Only target elements visible (or likely-visible after a click) — don't invent UI.
-- Each step's "beat" is what the speaker says during that step.
-
-Output JSON only, no prose:
-{ "actions": [ ... ] }`;
-
-  const text = await withSpinner(
-    "Gemini planning click-through from screenshot",
-    () => runGemini({ prompt, imagePath }),
-  );
-  const json = JSON.parse(extractJson(text)) as { actions: CaptureAction[] };
-  for (const a of json.actions) validateAction(a);
-  return json.actions;
 }

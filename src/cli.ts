@@ -7,10 +7,8 @@ import { runPipeline } from "./pipeline.js";
 import { captureUrl, isCaptureFormat, FORMAT_PRESETS, type CaptureFormat } from "./modes/capture.js";
 import {
   loadActionsFromFile,
-  planActionsWithGemini,
   type CaptureAction,
 } from "./modes/capture-actions.js";
-import { chromium } from "playwright";
 import { stitchClips } from "./modes/stitch.js";
 import { mockFromPrompt } from "./modes/mock.js";
 
@@ -40,8 +38,6 @@ program
     const outputDir = await prepareOutputDir(opts.name);
     const actions = await resolveCaptureActions({
       actionsPath: opts.actions,
-      describe: opts.describe,
-      url: opts.url,
     });
     const clips = await captureUrl({
       url: opts.url,
@@ -141,13 +137,10 @@ async function runPipelineGrouped(args: {
 /**
  * Decide which click-through actions to run, in priority order:
  *  1. --actions <path> if provided
- *  2. `gemini` CLI installed → ask Gemini (vision) to plan from describe + screenshot
- *  3. neither → undefined (fall back to scroll tour)
+ *  2. neither → undefined (fall back to scroll tour)
  */
 async function resolveCaptureActions(args: {
   actionsPath?: string;
-  describe: string;
-  url: string;
 }): Promise<CaptureAction[] | undefined> {
   if (args.actionsPath) {
     const list = await loadActionsFromFile(args.actionsPath);
@@ -155,27 +148,8 @@ async function resolveCaptureActions(args: {
     return list;
   }
 
-  console.log(`[capture] planning actions with Gemini vision (no --actions provided)`);
-  const browser = await chromium.launch({ headless: true });
-  try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    await page.goto(args.url, { waitUntil: "networkidle", timeout: 30_000 });
-    await page.waitForTimeout(1500);
-    const screenshotPng = await page.screenshot({ type: "png" });
-    const planned = await planActionsWithGemini({
-      describe: args.describe,
-      screenshotPng,
-      url: args.url,
-    });
-    if (planned) {
-      console.log(`[capture] planner produced ${planned.length} action(s)`);
-    } else {
-      console.log(`[capture] gemini CLI not installed — falling back to scroll tour`);
-    }
-    return planned ?? undefined;
-  } finally {
-    await browser.close();
-  }
+  console.log(`[capture] no --actions file provided — falling back to scroll tour`);
+  return undefined;
 }
 
 function parseFormats(raw: string): CaptureFormat[] {
