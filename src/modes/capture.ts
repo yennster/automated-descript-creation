@@ -1,17 +1,17 @@
 import { chromium, type Page } from "playwright";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Clip } from "../types.js";
 
 /**
- * `capture` mode: open a deployed app in a real browser, perform a gentle automated
- * "tour" (navigate → settle → slow scroll), and record it as a single clip.
+ * `capture` mode: open a deployed app in a real browser, perform a gentle
+ * automated "tour" (navigate → settle → slow scroll), and record it as a
+ * single clip.
  *
- * This is intentionally minimal. The plan:
- *   v1 (now): one clip, ~14s, useful as a placeholder you can replace.
- *   v2 (todo): segment into multiple clips driven by the `describe` text — use
- *              Claude with vision to pick what to click; each step becomes a
- *              clip with its own beat.
+ * v1: one clip, useful as a placeholder you can replace.
+ * v2 (todo): segment into multiple clips driven by the `describe` text — use
+ *            Claude with vision to pick what to click; each step becomes a
+ *            clip with its own beat.
  */
 export async function captureUrl(args: {
   url: string;
@@ -28,60 +28,60 @@ export async function captureUrl(args: {
   });
   const page = await context.newPage();
 
+  const startMs = Date.now();
   try {
     await page.goto(args.url, { waitUntil: "networkidle", timeout: 30_000 });
     await page.waitForTimeout(1500);
-    await slowScrollToBottom(page, 8000);
+    await slowScroll(page, "down", 8000);
     await page.waitForTimeout(500);
-    await slowScrollToTop(page, 4000);
+    await slowScroll(page, "up", 4000);
     await page.waitForTimeout(500);
   } finally {
-    const video = page.video();
+    // Recording is finalized when the context closes; the file lands in
+    // videoDir under an auto-generated name. Don't use video.saveAs() —
+    // saveAs after browser.close() throws, and the call sequencing is
+    // fragile. Renaming the file is simpler and reliable.
     await context.close();
     await browser.close();
-    if (!video) throw new Error("No video was recorded");
-    const finalPath = join(videoDir, "tour.webm");
-    await video.saveAs(finalPath);
-
-    return [
-      {
-        path: finalPath,
-        label: "Site tour",
-        durationSec: 14,
-        beat: `Landing page of ${args.url}, slow scroll through the page.`,
-      },
-    ];
   }
+  const durationSec = (Date.now() - startMs) / 1000;
+
+  const written = (await readdir(videoDir)).filter((f) => f.endsWith(".webm"));
+  if (written.length === 0) throw new Error(`No video was recorded in ${videoDir}`);
+  if (written.length > 1) {
+    throw new Error(
+      `Expected one .webm in ${videoDir}, found ${written.length}: ${written.join(", ")}`,
+    );
+  }
+  const recordedPath = join(videoDir, written[0]!);
+  const finalPath = join(videoDir, "tour.webm");
+  if (recordedPath !== finalPath) {
+    await rename(recordedPath, finalPath);
+  }
+
+  return [
+    {
+      path: finalPath,
+      label: "Site tour",
+      durationSec,
+      beat: `Landing page of ${args.url}, slow scroll through the page.`,
+    },
+  ];
 }
 
-async function slowScrollToBottom(page: Page, durationMs: number): Promise<void> {
-  await page.evaluate(async (ms) => {
-    const start = performance.now();
-    const max = document.documentElement.scrollHeight - window.innerHeight;
-    return new Promise<void>((resolve) => {
-      function step(): void {
-        const t = Math.min(1, (performance.now() - start) / ms);
-        window.scrollTo(0, max * t);
-        if (t < 1) requestAnimationFrame(step);
-        else resolve();
-      }
-      step();
-    });
-  }, durationMs);
-}
-
-async function slowScrollToTop(page: Page, durationMs: number): Promise<void> {
-  await page.evaluate(async (ms) => {
-    const start = performance.now();
-    const from = window.scrollY;
-    return new Promise<void>((resolve) => {
-      function step(): void {
-        const t = Math.min(1, (performance.now() - start) / ms);
-        window.scrollTo(0, from * (1 - t));
-        if (t < 1) requestAnimationFrame(step);
-        else resolve();
-      }
-      step();
-    });
-  }, durationMs);
+/**
+ * Smooth scroll using Playwright's mouse wheel from the Node side. Avoids
+ * page.evaluate so esbuild/tsx helpers (__name, etc.) never leak into the
+ * browser sandbox.
+ */
+async function slowScroll(page: Page, direction: "up" | "down", durationMs: number): Promise<void> {
+  const steps = Math.max(1, Math.round(durationMs / 60)); // ~16fps stepping
+  const stepInterval = durationMs / steps;
+  const sign = direction === "down" ? 1 : -1;
+  // 80px per step at the default viewport: ~80 * 16 = 1280px/sec — gentle.
+  const dy = sign * 80;
+  for (let i = 0; i < steps; i++) {
+    await page.mouse.wheel(0, dy);
+    await page.waitForTimeout(stepInterval);
+  }
 }
