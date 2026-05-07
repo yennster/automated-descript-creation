@@ -110,13 +110,24 @@ npm run mock -- \
   --name "MyApp demo"
 ```
 
+A live example:
+
+```bash
+npm run capture -- \
+  --url "https://synthetic.jennyspeelman.dev/" \
+  --describe "Click through the app modes, move objects for motion, add objects onto a moving conveyor belt for object detection, etc." \
+  --name "Synthetic Data Studio demo" \
+  --format desktop \
+  --actions ./example/my-flow.json
+```
+
 ## Click-through actions
 
 By default `capture` does an automated scroll tour. To actually drive the UI
 through specific steps, pass an action plan with `--actions <path>`. You can
 write it yourself or ask Claude, ChatGPT, or another AI assistant to make it
-from your demo goal plus a screenshot of the app. See
-`examples/actions-example.json` for a minimal example. Schema:
+from your demo goal plus a screenshot of the app. See `example/my-flow.json`
+for a minimal example. Schema:
 
 ```json
 {

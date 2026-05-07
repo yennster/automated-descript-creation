@@ -12,6 +12,9 @@ type ClickAction = Extract<CaptureAction, { type: "click" }>;
 
 const CLICK_TIMEOUT_MS = 10_000;
 const FALLBACK_CLICK_TIMEOUT_MS = 2_500;
+const ACTION_PROGRESS_INTERVAL_MS = 1000;
+
+let clearActiveProgressLine: (() => void) | undefined;
 
 /** A beat associated with a time range inside a single recorded clip. */
 export interface ActionBeat {
@@ -44,17 +47,26 @@ export async function runActionFlow(args: {
   // initial settle so the page is on screen for a moment before motion
   await args.page.waitForTimeout(1500);
 
-  for (const action of args.actions) {
+  for (const [index, action] of args.actions.entries()) {
+    const progress = startActionProgress({
+      index: index + 1,
+      total: args.actions.length,
+      action,
+    });
     const startMs = Date.now() - args.recordingStartMs;
+    let failed = false;
     try {
       await executeAction(args.page, action);
     } catch (err) {
+      failed = true;
       const msg = err instanceof Error ? err.message : String(err);
+      progress.clearLine();
       console.warn(`[capture] action failed (${action.type}): ${msg.slice(0, 200)}`);
       // record a "failed" beat so transcript still aligns; tour continues
     }
     await args.page.waitForTimeout(pause);
     const endMs = Date.now() - args.recordingStartMs;
+    progress.stop(failed ? "failed" : "done");
 
     const narration = action.beat ?? `${action.type} step`;
     beats.push({
@@ -67,6 +79,62 @@ export async function runActionFlow(args: {
   }
 
   return beats;
+}
+
+function startActionProgress(args: {
+  index: number;
+  total: number;
+  action: CaptureAction;
+}): { clearLine: () => void; stop: (status: "done" | "failed") => void } {
+  const isTty = Boolean((process.stderr as { isTTY?: boolean }).isTTY);
+  const frames = ["|", "/", "-", "\\"];
+  const start = Date.now();
+  const label = actionProgressLabel(args.action);
+  let frameIndex = 0;
+
+  const format = (status: string): string => {
+    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+    return `[capture] ${status} action ${args.index}/${args.total}: ${label} (${elapsed}s)`;
+  };
+  const clearLine = (): void => {
+    if (isTty) process.stderr.write("\r\x1b[2K");
+  };
+  const write = (text: string): void => {
+    if (isTty) {
+      process.stderr.write(`\r\x1b[2K${text}`);
+    } else {
+      process.stderr.write(`${text}\n`);
+    }
+  };
+
+  const previousProgressLine = clearActiveProgressLine;
+  clearActiveProgressLine = clearLine;
+  write(format(isTty ? frames[frameIndex++]! : "running"));
+  const interval = setInterval(() => {
+    write(format(isTty ? frames[frameIndex++ % frames.length]! : "still running"));
+  }, ACTION_PROGRESS_INTERVAL_MS);
+
+  return {
+    clearLine,
+    stop(status) {
+      clearInterval(interval);
+      write(format(status === "done" ? "done" : "failed"));
+      if (isTty) process.stderr.write("\n");
+      if (clearActiveProgressLine === clearLine) {
+        clearActiveProgressLine = previousProgressLine;
+      }
+    },
+  };
+}
+
+function captureProgressLog(message: string): void {
+  clearActiveProgressLine?.();
+  console.log(message);
+}
+
+function actionProgressLabel(action: CaptureAction): string {
+  const label = shortLabel(action, action.beat ?? `${action.type} step`);
+  return label.length <= 90 ? label : `${label.slice(0, 87)}...`;
 }
 
 async function executeAction(page: Page, action: CaptureAction): Promise<void> {
@@ -158,12 +226,12 @@ async function clickLocator(target: Locator, description: string): Promise<void>
           );
         }
       });
-      console.log(`[capture] used DOM click fallback for ${description}`);
+      captureProgressLog(`[capture] used DOM click fallback for ${description}`);
       return;
     } catch {
       try {
         await target.click({ force: true, timeout: FALLBACK_CLICK_TIMEOUT_MS });
-        console.log(`[capture] used forced click fallback for ${description}`);
+        captureProgressLog(`[capture] used forced click fallback for ${description}`);
         return;
       } catch (forceClickError) {
         const normalMsg = normalClickError instanceof Error
@@ -191,7 +259,7 @@ async function clickInputControl(target: Locator): Promise<boolean> {
 
   try {
     await target.check({ force: true, timeout: FALLBACK_CLICK_TIMEOUT_MS });
-    console.log(`[capture] used forced check fallback for ${inputType} input`);
+    captureProgressLog(`[capture] used forced check fallback for ${inputType} input`);
     return true;
   } catch {}
 
@@ -205,7 +273,7 @@ async function clickInputControl(target: Locator): Promise<boolean> {
     })
     .catch(() => false);
   if (clickedLabel) {
-    console.log(`[capture] used label click fallback for ${inputType} input`);
+    captureProgressLog(`[capture] used label click fallback for ${inputType} input`);
     return true;
   }
 
@@ -219,7 +287,7 @@ async function clickInputControl(target: Locator): Promise<boolean> {
       input.dispatchEvent(new Event("change", { bubbles: true }));
     }
   });
-  console.log(`[capture] used DOM input fallback for ${inputType} input`);
+  captureProgressLog(`[capture] used DOM input fallback for ${inputType} input`);
   return true;
 }
 
