@@ -6,11 +6,11 @@ project draft + a narration transcript ready for you to record your voice over.
 
 ## Modes
 
-| Mode    | Input                                        | What it does                                                            |
-| ------- | -------------------------------------------- | ----------------------------------------------------------------------- |
-| `capture` (2a) | URL of a deployed app + a description of what to demo | Drives the app in a headed browser via Playwright, screen-records it. |
-| `stitch`  (2b) | A folder of clips you recorded yourself          | Uploads them in order, generates narration timed to each clip.        |
-| `mock`    (2c) | Just a prompt / feature description              | Generates titled placeholder slides so you can record over them later.|
+| Mode      | Input                                                  | What it does                                                            |
+| --------- | ------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `capture` | URL of a deployed app + a description of what to demo  | Drives the app in a headed browser via Playwright, screen-records it.   |
+| `stitch`  | A folder of clips you recorded yourself                | Uploads them in order, generates narration timed to each clip.          |
+| `mock`    | Just a prompt / feature description                    | Generates title-card placeholder slides so you can record over them.    |
 
 All three modes converge on the same output:
 
@@ -21,12 +21,12 @@ All three modes converge on the same output:
 ## AI is optional
 
 `ANTHROPIC_API_KEY` is **only** used to generate two kinds of text: narration
-script (all modes) and slide outlines (mode 2c). Without a key:
+script (all modes) and slide outlines (`mock` only). Without a key:
 
 - The Descript project, clips/slides, and timing all still get produced.
 - `transcript.md` is written with `[Write narration for ...]` placeholders so
   you can fill in the script yourself in any text editor.
-- Mode 2c falls back to a simple heuristic — newlines or sentences in your
+- `mock` falls back to a simple heuristic — newlines or sentences in your
   `--describe` become slide headlines.
 
 So if Anthropic billing isn't set up (Claude Max alone doesn't grant API
@@ -42,24 +42,25 @@ cp .env.example .env
 ```
 
 Get a Descript API token at Settings → API tokens (pick a Drive when you create
-it; that's your `DESCRIPT_DRIVE_ID`). Anthropic key is for narration generation.
+it; that's your `DESCRIPT_DRIVE_ID`). The Anthropic key is optional — see "AI is
+optional" above.
 
 ## Usage
 
 ```bash
-# Mode 2a: capture a deployed app
+# capture: drive a deployed app and record
 npm run capture -- \
   --url https://my-app.vercel.app \
   --describe "Sign up flow, then create a new project, then invite a teammate" \
   --name "MyApp demo"
 
-# Mode 2b: stitch existing clips
+# stitch: bring your own clips
 npm run stitch -- \
   --clips ./recordings/ \
   --describe "What I built and why it's cool" \
   --name "MyApp demo"
 
-# Mode 2c: prompt-only mock slides
+# mock: prompt-only title-card slides
 npm run mock -- \
   --describe "A todo app with AI subtask generation. 60 seconds." \
   --name "MyApp demo"
@@ -74,10 +75,9 @@ Output lands in `./output/<run-id>/`:
 ## Status
 
 Early scaffold. The pipeline, Descript client, and transcript generator are
-wired up. Mode 2a uses Playwright recording; 2b takes a clip folder; 2c
-generates silent placeholder MP4s with title cards via a tiny SVG → MP4 path
-(no ffmpeg dep yet — slides are rendered as 1080p PNGs and held; this will
-move to ffmpeg once we add it).
+wired up. `capture` uses Playwright recording; `stitch` takes a clip folder;
+`mock` generates 1080p SVG title cards (no ffmpeg dep — Descript holds each
+SVG on the timeline for the duration we pass).
 
 See `src/` for the layout. The Descript API surface used:
 

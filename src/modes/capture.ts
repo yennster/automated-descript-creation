@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import type { Clip } from "../types.js";
 
 /**
- * Mode 2a: open a deployed app in a real browser, perform a gentle automated
+ * `capture` mode: open a deployed app in a real browser, perform a gentle automated
  * "tour" (navigate → settle → slow scroll), and record it as a single clip.
  *
  * This is intentionally minimal. The plan:

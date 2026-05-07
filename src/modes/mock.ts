@@ -13,7 +13,7 @@ interface SlideSpec {
 }
 
 /**
- * Mode 2c: prompt-only. Produces title-card SVG slides + Clip[].
+ * `mock` mode: prompt-only. Produces title-card SVG slides + Clip[].
  *
  * If ANTHROPIC_API_KEY is set, Claude writes a richer slide list with
  * sub-text and per-slide beats. Otherwise we fall back to a simple
