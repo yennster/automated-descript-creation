@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runGemini, extractJson, isGeminiAvailable } from "../ai/gemini.js";
+import { withSpinner } from "../ai/spinner.js";
 
 export type CaptureAction =
   | { type: "click"; text?: string; selector?: string; beat: string }
@@ -219,7 +220,10 @@ Rules:
 Output JSON only, no prose:
 { "actions": [ ... ] }`;
 
-  const text = await runGemini({ prompt, imagePath });
+  const text = await withSpinner(
+    "Gemini planning click-through from screenshot",
+    () => runGemini({ prompt, imagePath }),
+  );
   const json = JSON.parse(extractJson(text)) as { actions: CaptureAction[] };
   for (const a of json.actions) validateAction(a);
   return json.actions;

@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Clip } from "../types.js";
 import { runGemini, extractJson, isGeminiAvailable } from "../ai/gemini.js";
+import { withSpinner } from "../ai/spinner.js";
 
 interface SlideSpec {
   headline: string;
@@ -117,7 +118,7 @@ Output STRICT JSON, no prose:
   ]
 }`;
 
-  const text = await runGemini({ prompt });
+  const text = await withSpinner("Gemini planning slides", () => runGemini({ prompt }));
   const json = JSON.parse(extractJson(text)) as { slides: SlideSpec[] };
   return json.slides;
 }
