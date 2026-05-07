@@ -3,26 +3,99 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Clip } from "../types.js";
 
-const MODEL = "claude-opus-4-7";
+const MODEL = "claude-sonnet-4-6";
+
+interface SlideSpec {
+  headline: string;
+  sub?: string;
+  durationSec: number;
+  beat?: string;
+}
 
 /**
- * Mode 2c: prompt-only. There's no real app yet — just an idea. We ask Claude
- * to break the description into N "shots" and write each as a title-card SVG.
+ * Mode 2c: prompt-only. Produces title-card SVG slides + Clip[].
  *
- * The SVGs land in raw/ and are referenced as Clips. Descript's importer
- * accepts images and holds them on the timeline for the duration we pass.
- *
- * No native deps (no canvas, no ffmpeg). Trade-off: slides are static.
+ * If ANTHROPIC_API_KEY is set, Claude writes a richer slide list with
+ * sub-text and per-slide beats. Otherwise we fall back to a simple
+ * heuristic: split `describe` on newlines (or sentences) and use each
+ * piece as a slide headline. Same output shape either way.
  */
 export async function mockFromPrompt(args: {
   describe: string;
   outputDir: string;
   targetSeconds?: number;
 }): Promise<Clip[]> {
+  const slides = process.env.ANTHROPIC_API_KEY
+    ? await slidesFromClaude(args)
+    : slidesFromHeuristic(args);
+
+  const slidesDir = resolve(args.outputDir, "raw");
+  await mkdir(slidesDir, { recursive: true });
+
+  const clips: Clip[] = [];
+  let i = 0;
+  for (const s of slides) {
+    i += 1;
+    const fileName = `slide-${String(i).padStart(2, "0")}.svg`;
+    const filePath = join(slidesDir, fileName);
+    await writeFile(filePath, renderSlideSvg(s.headline, s.sub), "utf8");
+    clips.push({
+      path: filePath,
+      label: s.headline,
+      durationSec: s.durationSec,
+      beat: s.beat,
+    });
+  }
+  return clips;
+}
+
+function slidesFromHeuristic(args: { describe: string; targetSeconds?: number }): SlideSpec[] {
   const target = args.targetSeconds ?? 60;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required");
-  const client = new Anthropic({ apiKey });
+
+  // Prefer explicit lines (\n or bullets). Fall back to sentence split.
+  const explicit = args.describe
+    .split("\n")
+    .map((s) => s.replace(/^[-*•\d.\s]+/, "").trim())
+    .filter(Boolean);
+
+  let chunks = explicit.length > 1 ? explicit : sentences(args.describe);
+
+  if (chunks.length === 0) chunks = [args.describe.trim() || "Demo"];
+  if (chunks.length > 8) chunks = chunks.slice(0, 8);
+
+  const perSlide = Math.max(4, Math.min(8, Math.round(target / chunks.length)));
+
+  console.log(
+    `[mock] no AI key — heuristic-split into ${chunks.length} slides @ ${perSlide}s each`,
+  );
+
+  return chunks.map((c, i) => ({
+    headline: condense(c, 6),
+    sub: chunks.length === 1 || i === 0 ? undefined : condense(c, 14),
+    durationSec: perSlide,
+    beat: c,
+  }));
+}
+
+function sentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function condense(text: string, maxWords: number): string {
+  const words = text.replace(/\s+/g, " ").trim().split(" ");
+  if (words.length <= maxWords) return words.join(" ");
+  return words.slice(0, maxWords).join(" ") + "…";
+}
+
+async function slidesFromClaude(args: {
+  describe: string;
+  targetSeconds?: number;
+}): Promise<SlideSpec[]> {
+  const target = args.targetSeconds ?? 60;
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
   const prompt = `You're planning a short demo video about a project the speaker hasn't built yet.
 The speaker will record voiceover later; right now you're producing a SHOT LIST of title-card slides.
@@ -53,28 +126,8 @@ Output STRICT JSON, no prose:
     .map((b) => (b.type === "text" ? b.text : ""))
     .join("")
     .trim();
-  const json = JSON.parse(extractJson(text)) as {
-    slides: { headline: string; sub?: string; durationSec: number; beat?: string }[];
-  };
-
-  const slidesDir = resolve(args.outputDir, "raw");
-  await mkdir(slidesDir, { recursive: true });
-
-  const clips: Clip[] = [];
-  let i = 0;
-  for (const s of json.slides) {
-    i += 1;
-    const fileName = `slide-${String(i).padStart(2, "0")}.svg`;
-    const filePath = join(slidesDir, fileName);
-    await writeFile(filePath, renderSlideSvg(s.headline, s.sub), "utf8");
-    clips.push({
-      path: filePath,
-      label: s.headline,
-      durationSec: s.durationSec,
-      beat: s.beat,
-    });
-  }
-  return clips;
+  const json = JSON.parse(extractJson(text)) as { slides: SlideSpec[] };
+  return json.slides;
 }
 
 function renderSlideSvg(headline: string, sub?: string): string {

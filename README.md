@@ -18,13 +18,27 @@ All three modes converge on the same output:
 2. A `transcript.md` file with narration broken into beats, timed to the clips,
    so you can record voice in Descript directly into the project.
 
+## AI is optional
+
+`ANTHROPIC_API_KEY` is **only** used to generate two kinds of text: narration
+script (all modes) and slide outlines (mode 2c). Without a key:
+
+- The Descript project, clips/slides, and timing all still get produced.
+- `transcript.md` is written with `[Write narration for ...]` placeholders so
+  you can fill in the script yourself in any text editor.
+- Mode 2c falls back to a simple heuristic — newlines or sentences in your
+  `--describe` become slide headlines.
+
+So if Anthropic billing isn't set up (Claude Max alone doesn't grant API
+access), you can still use everything; you just write the script.
+
 ## Setup
 
 ```bash
 npm install
 npx playwright install chromium
 cp .env.example .env
-# fill in DESCRIPT_API_TOKEN, DESCRIPT_DRIVE_ID, ANTHROPIC_API_KEY
+# DESCRIPT_API_TOKEN is required; ANTHROPIC_API_KEY is optional (see above)
 ```
 
 Get a Descript API token at Settings → API tokens (pick a Drive when you create

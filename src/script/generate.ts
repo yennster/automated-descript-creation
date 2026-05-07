@@ -1,15 +1,45 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Clip, TranscriptBeat } from "../types.js";
 
-const MODEL = "claude-opus-4-7";
+const MODEL = "claude-sonnet-4-6";
 
+/**
+ * Top-level entry point: returns AI-generated narration if ANTHROPIC_API_KEY
+ * is set, otherwise returns a placeholder transcript with empty slots and
+ * timing markers for the speaker to fill in by hand.
+ */
 export async function generateNarration(args: {
   describe: string;
   clips: Clip[];
 }): Promise<TranscriptBeat[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required");
-  const client = new Anthropic({ apiKey });
+  if (process.env.ANTHROPIC_API_KEY) {
+    return generateWithClaude(args);
+  }
+  console.log("[narration] ANTHROPIC_API_KEY not set — writing placeholder transcript");
+  return placeholderBeats(args.clips);
+}
+
+function placeholderBeats(clips: Clip[]): TranscriptBeat[] {
+  let cursor = 0;
+  return clips.map((c) => {
+    const startSec = cursor;
+    const endSec = cursor + c.durationSec;
+    cursor = endSec;
+    return {
+      clipLabel: c.label,
+      startSec,
+      endSec,
+      narration: `[Write narration for ${c.beat ? `"${c.beat}"` : `"${c.label}"`} — about ${Math.max(1, Math.round(c.durationSec * 2.3))} words]`,
+      cue: "fill in",
+    };
+  });
+}
+
+async function generateWithClaude(args: {
+  describe: string;
+  clips: Clip[];
+}): Promise<TranscriptBeat[]> {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
   const totalSec = args.clips.reduce((a, c) => a + c.durationSec, 0);
   const wordsTarget = Math.round(totalSec * 2.3); // ~140 wpm
