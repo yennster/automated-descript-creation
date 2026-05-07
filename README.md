@@ -75,9 +75,11 @@ npm run mock -- \
 
 ## Capture formats
 
-`--format` accepts a comma-separated list. Pick one or many; you get one clip
-per format on the same Descript timeline (drag onto separate compositions in
-Descript when you're ready to export different aspect ratios).
+`--format` accepts a comma-separated list. Pick one or many. With multiple
+formats, the tool creates **one Descript project per format** — each with a
+composition that matches its clip's aspect ratio (a 9:16 mobile clip
+in a 16:9 composition gets letterboxed; this avoids that). Output lands
+under `output/<run-id>/<format>/` per group.
 
 | Format          | Logical viewport | DPR | Video output | Use for                              |
 | --------------- | ---------------- | --- | ------------ | ------------------------------------ |
@@ -97,7 +99,8 @@ so your app's mobile breakpoints kick in.
 
 ## Output
 
-Output lands in `./output/<run-id>/`:
+Output lands in `./output/<run-id>/` (or `<run-id>/<format>/` per group when
+multiple formats are captured):
 
 - `descript-link.txt` — link to the draft project in Descript
 - `transcript.md` — narration script (or placeholder slots), with timestamps

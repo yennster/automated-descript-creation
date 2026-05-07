@@ -146,6 +146,7 @@ async function captureOneFormat(args: {
     label: spec.label,
     durationSec,
     beat: `${spec.label} — landing page of ${args.url}, slow scroll through the page.`,
+    group: args.formatKey,
   };
 }
 
