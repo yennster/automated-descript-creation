@@ -1,41 +1,122 @@
-import { chromium, type Page } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { mkdir, readdir, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Clip } from "../types.js";
 
-export type Resolution = "720p" | "1080p" | "1440p" | "4k";
+export type CaptureFormat =
+  | "desktop"
+  | "desktop-1080p"
+  | "desktop-720p"
+  | "mobile"
+  | "mobile-720p";
 
-const RES_PRESETS: Record<Resolution, { width: number; height: number }> = {
-  "720p": { width: 1280, height: 720 },
-  "1080p": { width: 1920, height: 1080 },
-  "1440p": { width: 2560, height: 1440 },
-  "4k": { width: 3840, height: 2160 },
+interface FormatSpec {
+  label: string;
+  /** Logical viewport — what the page sees as window.innerWidth/Height. */
+  viewport: { width: number; height: number };
+  /** DPR. >1 means the page renders at higher density (Retina-style). */
+  deviceScaleFactor: number;
+  /** Final video dimensions. Should equal viewport × deviceScaleFactor for crisp output. */
+  recordSize: { width: number; height: number };
+  /** Sets isMobile + hasTouch on the context so mobile breakpoints kick in. */
+  isMobile: boolean;
+}
+
+export const FORMAT_PRESETS: Record<CaptureFormat, FormatSpec> = {
+  desktop: {
+    label: "Desktop 4K (16:9)",
+    viewport: { width: 1920, height: 1080 },
+    deviceScaleFactor: 2,
+    recordSize: { width: 3840, height: 2160 },
+    isMobile: false,
+  },
+  "desktop-1080p": {
+    label: "Desktop 1080p (16:9)",
+    viewport: { width: 1920, height: 1080 },
+    deviceScaleFactor: 1,
+    recordSize: { width: 1920, height: 1080 },
+    isMobile: false,
+  },
+  "desktop-720p": {
+    label: "Desktop 720p (16:9)",
+    viewport: { width: 1280, height: 720 },
+    deviceScaleFactor: 1,
+    recordSize: { width: 1280, height: 720 },
+    isMobile: false,
+  },
+  mobile: {
+    label: "Mobile portrait 1080×1920 (9:16) — Shorts/Reels",
+    viewport: { width: 540, height: 960 },
+    deviceScaleFactor: 2,
+    recordSize: { width: 1080, height: 1920 },
+    isMobile: true,
+  },
+  "mobile-720p": {
+    label: "Mobile portrait 720×1280 (9:16)",
+    viewport: { width: 360, height: 640 },
+    deviceScaleFactor: 2,
+    recordSize: { width: 720, height: 1280 },
+    isMobile: true,
+  },
 };
+
+export function isCaptureFormat(s: string): s is CaptureFormat {
+  return s in FORMAT_PRESETS;
+}
 
 /**
  * `capture` mode: open a deployed app in a real browser, perform a gentle
- * automated "tour" (navigate → settle → slow scroll), and record it as a
- * single clip.
- *
- * v1: one clip, useful as a placeholder you can replace.
- * v2 (todo): segment into multiple clips driven by the `describe` text — use
- *            Claude with vision to pick what to click; each step becomes a
- *            clip with its own beat.
+ * automated tour, and record it. With multiple formats specified, runs once
+ * per format on the same browser instance — useful for getting a desktop +
+ * Shorts/Reels cut from a single command.
  */
 export async function captureUrl(args: {
   url: string;
   describe: string;
   outputDir: string;
-  resolution?: Resolution;
+  formats: CaptureFormat[];
 }): Promise<Clip[]> {
+  if (args.formats.length === 0) throw new Error("At least one format is required");
+
   const videoDir = resolve(args.outputDir, "raw");
   await mkdir(videoDir, { recursive: true });
-  const size = RES_PRESETS[args.resolution ?? "4k"];
 
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    viewport: size,
-    recordVideo: { dir: videoDir, size },
+  const clips: Clip[] = [];
+  try {
+    for (const formatKey of args.formats) {
+      const clip = await captureOneFormat({
+        browser,
+        url: args.url,
+        videoDir,
+        formatKey,
+      });
+      clips.push(clip);
+    }
+  } finally {
+    await browser.close();
+  }
+  return clips;
+}
+
+async function captureOneFormat(args: {
+  browser: Browser;
+  url: string;
+  videoDir: string;
+  formatKey: CaptureFormat;
+}): Promise<Clip> {
+  const spec = FORMAT_PRESETS[args.formatKey];
+  // Each format gets its own subdir so we can confidently rename — Playwright
+  // auto-names video files and we'd otherwise have to disambiguate.
+  const formatDir = resolve(args.videoDir, args.formatKey);
+  await mkdir(formatDir, { recursive: true });
+
+  const context = await args.browser.newContext({
+    viewport: spec.viewport,
+    deviceScaleFactor: spec.deviceScaleFactor,
+    isMobile: spec.isMobile,
+    hasTouch: spec.isMobile,
+    recordVideo: { dir: formatDir, size: spec.recordSize },
   });
   const page = await context.newPage();
 
@@ -48,47 +129,30 @@ export async function captureUrl(args: {
     await slowScroll(page, "up", 4000);
     await page.waitForTimeout(500);
   } finally {
-    // Recording is finalized when the context closes; the file lands in
-    // videoDir under an auto-generated name. Don't use video.saveAs() —
-    // saveAs after browser.close() throws, and the call sequencing is
-    // fragile. Renaming the file is simpler and reliable.
     await context.close();
-    await browser.close();
   }
   const durationSec = (Date.now() - startMs) / 1000;
 
-  const written = (await readdir(videoDir)).filter((f) => f.endsWith(".webm"));
-  if (written.length === 0) throw new Error(`No video was recorded in ${videoDir}`);
+  const written = (await readdir(formatDir)).filter((f) => f.endsWith(".webm"));
+  if (written.length === 0) throw new Error(`No video recorded in ${formatDir}`);
   if (written.length > 1) {
-    throw new Error(
-      `Expected one .webm in ${videoDir}, found ${written.length}: ${written.join(", ")}`,
-    );
+    throw new Error(`Expected one .webm in ${formatDir}, found ${written.length}`);
   }
-  const recordedPath = join(videoDir, written[0]!);
-  const finalPath = join(videoDir, "tour.webm");
-  if (recordedPath !== finalPath) {
-    await rename(recordedPath, finalPath);
-  }
+  const finalPath = join(args.videoDir, `${args.formatKey}.webm`);
+  await rename(join(formatDir, written[0]!), finalPath);
 
-  return [
-    {
-      path: finalPath,
-      label: "Site tour",
-      durationSec,
-      beat: `Landing page of ${args.url}, slow scroll through the page.`,
-    },
-  ];
+  return {
+    path: finalPath,
+    label: spec.label,
+    durationSec,
+    beat: `${spec.label} — landing page of ${args.url}, slow scroll through the page.`,
+  };
 }
 
 /**
- * Smooth requestAnimationFrame-driven scroll, with ease-in-out so the start
- * and stop don't feel abrupt.
- *
- * The browser code is passed to page.evaluate as a STRING rather than a
- * function — when it's a string, Playwright sends the source verbatim and
- * tsx/esbuild never transforms it. (When it's a function, esbuild wraps
- * named functions with a __name() helper that doesn't exist in the page,
- * which throws ReferenceError.)
+ * Smooth requestAnimationFrame-driven scroll with ease-in-out. The browser
+ * code is passed as a STRING so tsx/esbuild can't inject __name helpers
+ * (they don't exist in the browser sandbox).
  */
 async function slowScroll(page: Page, direction: "up" | "down", durationMs: number): Promise<void> {
   await page.evaluate(`new Promise((resolve) => {

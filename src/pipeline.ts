@@ -43,15 +43,16 @@ export async function runPipeline(args: {
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
   // 2. Descript upload — skip if creds missing or user opts out.
+  // DRIVE_ID is optional: the import endpoint inherits it from the token.
   const result: RunResult = { transcriptPath, manifestPath };
   const token = process.env.DESCRIPT_API_TOKEN;
   const driveId = process.env.DESCRIPT_DRIVE_ID;
-  const upload = args.uploadToDescript !== false && token && driveId;
+  const upload = args.uploadToDescript !== false && Boolean(token);
 
   if (!upload) {
     console.log(
       `[pipeline] Skipping Descript upload (${
-        token && driveId ? "explicitly disabled" : "DESCRIPT_API_TOKEN/DRIVE_ID not set"
+        token ? "explicitly disabled" : "DESCRIPT_API_TOKEN not set"
       }). Transcript + manifest are ready locally.`,
     );
     return result;
