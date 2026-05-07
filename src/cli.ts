@@ -4,7 +4,7 @@ import { Command } from "commander";
 import { resolve } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { runPipeline } from "./pipeline.js";
-import { captureUrl } from "./modes/capture.js";
+import { captureUrl, isCaptureFormat, FORMAT_PRESETS, type CaptureFormat } from "./modes/capture.js";
 import { stitchClips } from "./modes/stitch.js";
 import { mockFromPrompt } from "./modes/mock.js";
 
@@ -19,15 +19,20 @@ program
   .requiredOption("-u, --url <url>", "URL of the deployed app")
   .requiredOption("-d, --describe <text>", "What to demo / why it's interesting")
   .requiredOption("-n, --name <name>", "Descript project name")
-  .option("-r, --resolution <res>", "Recording resolution: 720p, 1080p, 1440p, or 4k", "4k")
+  .option(
+    "-f, --format <list>",
+    `Comma-separated formats. Choices: ${Object.keys(FORMAT_PRESETS).join(", ")}`,
+    "desktop",
+  )
   .option("--no-upload", "Skip Descript upload, just generate transcript locally")
   .action(async (opts) => {
+    const formats = parseFormats(opts.format);
     const outputDir = await prepareOutputDir(opts.name);
     const clips = await captureUrl({
       url: opts.url,
       describe: opts.describe,
       outputDir,
-      resolution: opts.resolution,
+      formats,
     });
     await runPipeline({
       name: opts.name,
@@ -79,6 +84,19 @@ program
       uploadToDescript: opts.upload,
     });
   });
+
+function parseFormats(raw: string): CaptureFormat[] {
+  const tokens = raw.split(",").map((t) => t.trim()).filter(Boolean);
+  if (tokens.length === 0) throw new Error("--format must list at least one format");
+  for (const t of tokens) {
+    if (!isCaptureFormat(t)) {
+      throw new Error(
+        `Unknown format "${t}". Valid: ${Object.keys(FORMAT_PRESETS).join(", ")}`,
+      );
+    }
+  }
+  return tokens as CaptureFormat[];
+}
 
 async function prepareOutputDir(name: string): Promise<string> {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
