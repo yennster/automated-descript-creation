@@ -70,18 +70,29 @@ export async function captureUrl(args: {
 }
 
 /**
- * Smooth scroll using Playwright's mouse wheel from the Node side. Avoids
- * page.evaluate so esbuild/tsx helpers (__name, etc.) never leak into the
- * browser sandbox.
+ * Smooth requestAnimationFrame-driven scroll, with ease-in-out so the start
+ * and stop don't feel abrupt.
+ *
+ * The browser code is passed to page.evaluate as a STRING rather than a
+ * function — when it's a string, Playwright sends the source verbatim and
+ * tsx/esbuild never transforms it. (When it's a function, esbuild wraps
+ * named functions with a __name() helper that doesn't exist in the page,
+ * which throws ReferenceError.)
  */
 async function slowScroll(page: Page, direction: "up" | "down", durationMs: number): Promise<void> {
-  const steps = Math.max(1, Math.round(durationMs / 60)); // ~16fps stepping
-  const stepInterval = durationMs / steps;
-  const sign = direction === "down" ? 1 : -1;
-  // 80px per step at the default viewport: ~80 * 16 = 1280px/sec — gentle.
-  const dy = sign * 80;
-  for (let i = 0; i < steps; i++) {
-    await page.mouse.wheel(0, dy);
-    await page.waitForTimeout(stepInterval);
-  }
+  await page.evaluate(`new Promise((resolve) => {
+    const startTime = performance.now();
+    const ms = ${durationMs};
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    const from = ${JSON.stringify(direction)} === "up" ? window.scrollY : 0;
+    const to = ${JSON.stringify(direction)} === "up" ? 0 : max;
+    const tick = () => {
+      const t = Math.min(1, (performance.now() - startTime) / ms);
+      const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      window.scrollTo(0, from + (to - from) * eased);
+      if (t < 1) requestAnimationFrame(tick);
+      else resolve(undefined);
+    };
+    tick();
+  })`);
 }
