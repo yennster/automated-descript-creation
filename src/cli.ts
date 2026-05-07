@@ -34,11 +34,11 @@ program
       outputDir,
       formats,
     });
-    await runPipeline({
-      name: opts.name,
+    await runPipelineGrouped({
+      baseName: opts.name,
       describe: opts.describe,
       clips,
-      outputDir,
+      baseOutputDir: outputDir,
       uploadToDescript: opts.upload,
     });
   });
@@ -84,6 +84,43 @@ program
       uploadToDescript: opts.upload,
     });
   });
+
+/**
+ * Group clips by their `group` key and run one pipeline per group, so each
+ * Descript project gets a composition matching its clips' aspect ratio.
+ * Clips without a group key all go into one default project.
+ */
+async function runPipelineGrouped(args: {
+  baseName: string;
+  describe: string;
+  clips: import("./types.js").Clip[];
+  baseOutputDir: string;
+  uploadToDescript?: boolean;
+}): Promise<void> {
+  const groups = new Map<string, import("./types.js").Clip[]>();
+  for (const c of args.clips) {
+    const key = c.group ?? "_";
+    const existing = groups.get(key) ?? [];
+    existing.push(c);
+    groups.set(key, existing);
+  }
+  const single = groups.size === 1;
+  for (const [groupKey, groupClips] of groups) {
+    const isDefault = groupKey === "_";
+    const projectName = single || isDefault ? args.baseName : `${args.baseName} — ${groupKey}`;
+    const subdir = single
+      ? args.baseOutputDir
+      : resolve(args.baseOutputDir, isDefault ? "default" : groupKey);
+    await mkdir(subdir, { recursive: true });
+    await runPipeline({
+      name: projectName,
+      describe: args.describe,
+      clips: groupClips,
+      outputDir: subdir,
+      uploadToDescript: args.uploadToDescript,
+    });
+  }
+}
 
 function parseFormats(raw: string): CaptureFormat[] {
   const tokens = raw.split(",").map((t) => t.trim()).filter(Boolean);

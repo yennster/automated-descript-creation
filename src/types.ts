@@ -7,6 +7,12 @@ export interface Clip {
   durationSec: number;
   /** Optional: what the viewer is seeing during this clip. Feeds the script generator. */
   beat?: string;
+  /**
+   * Optional grouping key. Clips with different keys go into separate
+   * Descript projects so each project's composition can have a matching
+   * aspect ratio. Set by `capture` mode (one group per --format).
+   */
+  group?: string;
 }
 
 export interface RunInput {
