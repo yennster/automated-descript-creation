@@ -1,7 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type { Clip, TranscriptBeat } from "../types.js";
-
-const MODEL = "claude-sonnet-4-6";
+import { runGemini, extractJson, isGeminiAvailable } from "../ai/gemini.js";
 
 /**
  * Top-level entry point.
@@ -10,7 +8,7 @@ const MODEL = "claude-sonnet-4-6";
  * 1. Pre-built beats on the clips (set by capture mode's action flow). Used
  *    verbatim with an offset adjustment so beat times are absolute within
  *    the run rather than relative to each clip.
- * 2. AI-generated narration if ANTHROPIC_API_KEY is set.
+ * 2. AI-generated narration via the `gemini` CLI if it's installed.
  * 3. Placeholder transcript with [Write narration for ...] slots.
  */
 export async function generateNarration(args: {
@@ -20,10 +18,16 @@ export async function generateNarration(args: {
   if (args.clips.some((c) => c.beats && c.beats.length > 0)) {
     return prebuiltBeats(args.clips);
   }
-  if (process.env.ANTHROPIC_API_KEY) {
-    return generateWithClaude(args);
+  if (await isGeminiAvailable()) {
+    try {
+      return await generateWithGemini(args);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[narration] gemini call failed (${msg.slice(0, 200)}); writing placeholder`);
+    }
+  } else {
+    console.log("[narration] gemini CLI not found — writing placeholder transcript");
   }
-  console.log("[narration] ANTHROPIC_API_KEY not set — writing placeholder transcript");
   return placeholderBeats(args.clips);
 }
 
@@ -72,12 +76,10 @@ function placeholderBeats(clips: Clip[]): TranscriptBeat[] {
   });
 }
 
-async function generateWithClaude(args: {
+async function generateWithGemini(args: {
   describe: string;
   clips: Clip[];
 }): Promise<TranscriptBeat[]> {
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-
   const totalSec = args.clips.reduce((a, c) => a + c.durationSec, 0);
   const wordsTarget = Math.round(totalSec * 2.3); // ~140 wpm
 
@@ -110,19 +112,8 @@ Output STRICT JSON, no prose, with this shape:
 
 One beat per clip, same order as listed. The narration field is what the speaker says during that clip.`;
 
-  const res = await client.messages.create({
-    model: MODEL,
-    max_tokens: 2000,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const text = res.content
-    .map((b) => (b.type === "text" ? b.text : ""))
-    .join("")
-    .trim();
-
-  const jsonStr = extractJson(text);
-  const parsed = JSON.parse(jsonStr) as {
+  const text = await runGemini({ prompt });
+  const parsed = JSON.parse(extractJson(text)) as {
     beats: { clipLabel: string; narration: string; cue?: string }[];
   };
 
@@ -141,13 +132,4 @@ One beat per clip, same order as listed. The narration field is what the speaker
       cue: b.cue,
     };
   });
-}
-
-function extractJson(text: string): string {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence?.[1]) return fence[1].trim();
-  const first = text.indexOf("{");
-  const last = text.lastIndexOf("}");
-  if (first === -1 || last === -1) throw new Error(`No JSON in model output: ${text.slice(0, 200)}`);
-  return text.slice(first, last + 1);
 }

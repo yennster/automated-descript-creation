@@ -1,6 +1,8 @@
 import type { Page } from "playwright";
-import { readFile } from "node:fs/promises";
-import Anthropic from "@anthropic-ai/sdk";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runGemini, extractJson, isGeminiAvailable } from "../ai/gemini.js";
 
 export type CaptureAction =
   | { type: "click"; text?: string; selector?: string; beat: string }
@@ -17,8 +19,6 @@ export interface ActionBeat {
   narration: string;
   cue: string;
 }
-
-const PLANNER_MODEL = "claude-sonnet-4-6";
 
 /**
  * Execute a sequence of actions against an already-loaded page, recording the
@@ -181,20 +181,25 @@ function validateAction(a: unknown): void {
 }
 
 /**
- * Use Claude (with vision) to plan a click-through demo from the describe
- * text + a screenshot of the loaded page.
+ * Use Gemini (with vision via the `gemini` CLI) to plan a click-through demo
+ * from the describe text + a screenshot of the loaded page.
  *
- * Returns null if no API key is set so the caller can fall back gracefully.
+ * Returns null if the CLI isn't installed so the caller can fall back gracefully.
  */
-export async function planActionsWithClaude(args: {
+export async function planActionsWithGemini(args: {
   describe: string;
   screenshotPng: Buffer;
   url: string;
 }): Promise<CaptureAction[] | null> {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  if (!(await isGeminiAvailable())) return null;
 
-  const prompt = `You're scripting a short demo video of a web app. The screenshot shows the app's current state at ${args.url}.
+  // Gemini CLI's @file syntax wants a real file on disk.
+  const dir = join(tmpdir(), "adc-planner");
+  await mkdir(dir, { recursive: true });
+  const imagePath = join(dir, `screenshot-${Date.now()}.png`);
+  await writeFile(imagePath, args.screenshotPng);
+
+  const prompt = `You're scripting a short demo video of a web app. The attached screenshot shows the app's current state at ${args.url}.
 
 What the speaker wants to demo:
 ${args.describe}
@@ -207,48 +212,15 @@ Output a STRICT JSON action plan — 3 to 7 steps — that drives the demo. Use 
   { "type": "wait", "durationMs": 1500, "beat": "..." }
 
 Rules:
-- Prefer click-by-text over selectors. Use exact text visible on the page.
+- Prefer click-by-text over selectors. Use exact text visible in the screenshot.
 - Only target elements visible (or likely-visible after a click) — don't invent UI.
 - Each step's "beat" is what the speaker says during that step.
 
 Output JSON only, no prose:
 { "actions": [ ... ] }`;
 
-  const res = await client.messages.create({
-    model: PLANNER_MODEL,
-    max_tokens: 1500,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: "image/png",
-              data: args.screenshotPng.toString("base64"),
-            },
-          },
-          { type: "text", text: prompt },
-        ],
-      },
-    ],
-  });
-
-  const text = res.content
-    .map((b) => (b.type === "text" ? b.text : ""))
-    .join("")
-    .trim();
+  const text = await runGemini({ prompt, imagePath });
   const json = JSON.parse(extractJson(text)) as { actions: CaptureAction[] };
   for (const a of json.actions) validateAction(a);
   return json.actions;
-}
-
-function extractJson(text: string): string {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence?.[1]) return fence[1].trim();
-  const first = text.indexOf("{");
-  const last = text.lastIndexOf("}");
-  if (first === -1 || last === -1) throw new Error(`No JSON in planner output: ${text.slice(0, 200)}`);
-  return text.slice(first, last + 1);
 }

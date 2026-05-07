@@ -7,7 +7,7 @@ import { runPipeline } from "./pipeline.js";
 import { captureUrl, isCaptureFormat, FORMAT_PRESETS, type CaptureFormat } from "./modes/capture.js";
 import {
   loadActionsFromFile,
-  planActionsWithClaude,
+  planActionsWithGemini,
   type CaptureAction,
 } from "./modes/capture-actions.js";
 import { chromium } from "playwright";
@@ -141,7 +141,7 @@ async function runPipelineGrouped(args: {
 /**
  * Decide which click-through actions to run, in priority order:
  *  1. --actions <path> if provided
- *  2. ANTHROPIC_API_KEY set → ask Claude to plan from describe + screenshot
+ *  2. `gemini` CLI installed → ask Gemini (vision) to plan from describe + screenshot
  *  3. neither → undefined (fall back to scroll tour)
  */
 async function resolveCaptureActions(args: {
@@ -154,22 +154,23 @@ async function resolveCaptureActions(args: {
     console.log(`[capture] loaded ${list.length} action(s) from ${args.actionsPath}`);
     return list;
   }
-  if (!process.env.ANTHROPIC_API_KEY) return undefined;
 
-  console.log(`[capture] planning actions with Claude vision (no --actions provided)`);
+  console.log(`[capture] planning actions with Gemini vision (no --actions provided)`);
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto(args.url, { waitUntil: "networkidle", timeout: 30_000 });
     await page.waitForTimeout(1500);
     const screenshotPng = await page.screenshot({ type: "png" });
-    const planned = await planActionsWithClaude({
+    const planned = await planActionsWithGemini({
       describe: args.describe,
       screenshotPng,
       url: args.url,
     });
     if (planned) {
       console.log(`[capture] planner produced ${planned.length} action(s)`);
+    } else {
+      console.log(`[capture] gemini CLI not installed — falling back to scroll tour`);
     }
     return planned ?? undefined;
   } finally {
