@@ -19,6 +19,7 @@ program
   .requiredOption("-u, --url <url>", "URL of the deployed app")
   .requiredOption("-d, --describe <text>", "What to demo / why it's interesting")
   .requiredOption("-n, --name <name>", "Descript project name")
+  .option("-r, --resolution <res>", "Recording resolution: 720p, 1080p, 1440p, or 4k", "4k")
   .option("--no-upload", "Skip Descript upload, just generate transcript locally")
   .action(async (opts) => {
     const outputDir = await prepareOutputDir(opts.name);
@@ -26,6 +27,7 @@ program
       url: opts.url,
       describe: opts.describe,
       outputDir,
+      resolution: opts.resolution,
     });
     await runPipeline({
       name: opts.name,
