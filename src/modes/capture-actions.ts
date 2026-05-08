@@ -1,5 +1,6 @@
 import type { Locator, Page } from "playwright";
 import { readFile } from "node:fs/promises";
+import { resetHorizontalScroll } from "../browser/horizontal-scroll-lock.js";
 
 type ActionDescription = { beat?: string; description?: string };
 
@@ -148,16 +149,6 @@ function actionNarration(action: CaptureAction): string | undefined {
   return action.beat ?? action.description;
 }
 
-async function resetHorizontalScroll(page: Page): Promise<void> {
-  await page.evaluate(`(() => {
-    window.scrollTo(0, window.scrollY);
-    document.documentElement.scrollLeft = 0;
-    document.body.scrollLeft = 0;
-    const scrolling = document.scrollingElement;
-    if (scrolling) scrolling.scrollLeft = 0;
-  })()`).catch(() => {});
-}
-
 async function executeAction(page: Page, action: CaptureAction): Promise<void> {
   switch (action.type) {
     case "click":
@@ -275,41 +266,43 @@ async function clickInputControl(target: Locator): Promise<boolean> {
     .catch(() => null);
   if (inputType !== "radio" && inputType !== "checkbox") return false;
 
-  try {
-    await target.check({ timeout: FALLBACK_CLICK_TIMEOUT_MS });
-    return true;
-  } catch {}
-
-  try {
-    await target.check({ force: true, timeout: FALLBACK_CLICK_TIMEOUT_MS });
-    captureProgressLog(`[capture] used forced check fallback for ${inputType} input`);
-    return true;
-  } catch {}
-
-  const clickedLabel = await target
+  const result = await target
     .evaluate((el) => {
       const input = el as HTMLInputElement;
-      const label = input.labels?.[0];
-      if (!label) return false;
-      label.click();
-      return true;
+      if (input.disabled) return { clickedLabel: false, changed: false, disabled: true };
+
+      const before = input.checked;
+      const label = input.labels?.[0] ?? null;
+      if (!input.checked) {
+        if (label) {
+          label.click();
+        } else {
+          input.click();
+        }
+      }
+
+      if (!input.checked) {
+        const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked");
+        descriptor?.set?.call(input, true);
+      }
+
+      if (input.checked !== before) {
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+
+      return { clickedLabel: Boolean(label), changed: input.checked !== before, disabled: false };
     })
-    .catch(() => false);
-  if (clickedLabel) {
+    .catch(() => ({ clickedLabel: false, changed: false, disabled: false }));
+
+  if (result.disabled) {
+    throw new Error(`${inputType} input is disabled`);
+  }
+  if (result.clickedLabel) {
     captureProgressLog(`[capture] used label click fallback for ${inputType} input`);
     return true;
   }
 
-  await target.evaluate((el) => {
-    const input = el as HTMLInputElement;
-    input.click();
-    if (!input.checked) {
-      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked");
-      descriptor?.set?.call(input, true);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-  });
   captureProgressLog(`[capture] used DOM input fallback for ${inputType} input`);
   return true;
 }

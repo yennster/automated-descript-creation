@@ -1,6 +1,10 @@
 import { chromium, type Browser, type Page } from "playwright";
 import { mkdir, readdir, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import {
+  horizontalScrollLockScript,
+  installHorizontalScrollLock,
+} from "../browser/horizontal-scroll-lock.js";
 import type { Clip, TranscriptBeat } from "../types.js";
 import {
   type CaptureAction,
@@ -166,85 +170,18 @@ async function preparePageForCapture(page: Page): Promise<void> {
     content: `
       html,
       body {
+        width: 100vw !important;
         max-width: 100vw !important;
         overflow-x: hidden !important;
+        overscroll-behavior-x: none !important;
+      }
+
+      * {
+        scroll-behavior: auto !important;
       }
     `,
   }).catch(() => {});
   await installHorizontalScrollLock(page);
-}
-
-async function installHorizontalScrollLock(page: Page): Promise<void> {
-  await page.evaluate(horizontalScrollLockScript()).catch(() => {});
-  await resetHorizontalScroll(page);
-}
-
-function horizontalScrollLockScript(): string {
-  return `(() => {
-    const w = window;
-    if (w.__adcHorizontalScrollLockInstalled) {
-      return;
-    }
-    w.__adcHorizontalScrollLockInstalled = true;
-    const originalScrollTo = w.scrollTo.bind(w);
-    const originalScrollBy = w.scrollBy.bind(w);
-
-    const resetHorizontalScroll = () => {
-      const y = w.scrollY || document.documentElement.scrollTop || document.body?.scrollTop || 0;
-      if (w.scrollX !== 0) {
-        originalScrollTo(0, y);
-      }
-      document.documentElement.scrollLeft = 0;
-      if (document.body) document.body.scrollLeft = 0;
-      const scrolling = document.scrollingElement;
-      if (scrolling) scrolling.scrollLeft = 0;
-    };
-
-    w.scrollTo = (...args) => {
-      if (args.length === 1 && typeof args[0] === "object") {
-        const opts = args[0] || {};
-        originalScrollTo({ ...opts, left: 0 });
-      } else {
-        originalScrollTo(0, Number(args[1] ?? w.scrollY ?? 0));
-      }
-      resetHorizontalScroll();
-    };
-
-    w.scrollBy = (...args) => {
-      if (args.length === 1 && typeof args[0] === "object") {
-        const opts = args[0] || {};
-        originalScrollBy({ ...opts, left: 0 });
-      } else {
-        originalScrollBy(0, Number(args[1] ?? 0));
-      }
-      resetHorizontalScroll();
-    };
-
-    const originalScrollIntoView = Element.prototype.scrollIntoView;
-    Element.prototype.scrollIntoView = function (...args) {
-      originalScrollIntoView.apply(this, args);
-      resetHorizontalScroll();
-      setTimeout(resetHorizontalScroll, 0);
-      requestAnimationFrame(resetHorizontalScroll);
-    };
-
-    const tick = () => {
-      resetHorizontalScroll();
-      w.__adcHorizontalScrollLockFrame = requestAnimationFrame(tick);
-    };
-    resetHorizontalScroll();
-    tick();
-  })()`;
-}
-
-async function resetHorizontalScroll(page: Page): Promise<void> {
-  await page.evaluate(`(() => {
-    window.scrollTo(0, window.scrollY);
-    document.documentElement.scrollLeft = 0;
-    document.body.scrollLeft = 0;
-    const scrolling = document.scrollingElement;
-    if (scrolling) scrolling.scrollLeft = 0;
-  })()`).catch(() => {});
 }
 
 /**
