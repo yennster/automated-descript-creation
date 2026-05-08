@@ -1,12 +1,14 @@
 import type { Locator, Page } from "playwright";
 import { readFile } from "node:fs/promises";
 
+type ActionDescription = { beat?: string; description?: string };
+
 export type CaptureAction =
-  | { type: "click"; text?: string; selector?: string; beat: string }
-  | { type: "fill"; selector: string; value: string; beat: string }
-  | { type: "scroll"; direction: "up" | "down"; durationMs?: number; beat: string }
-  | { type: "wait"; durationMs: number; beat?: string }
-  | { type: "press"; key: string; beat: string };
+  | ({ type: "click"; text?: string; selector?: string } & ActionDescription)
+  | ({ type: "fill"; selector: string; value: string } & ActionDescription)
+  | ({ type: "scroll"; direction: "up" | "down"; durationMs?: number } & ActionDescription)
+  | ({ type: "wait"; durationMs: number } & ActionDescription)
+  | ({ type: "press"; key: string } & ActionDescription);
 
 type ClickAction = Extract<CaptureAction, { type: "click" }>;
 
@@ -73,7 +75,7 @@ export async function runActionFlow(args: {
     const endMs = Date.now() - args.recordingStartMs;
     progress.stop(failed ? "failed" : "done");
 
-    const narration = action.beat ?? `${action.type} step`;
+    const narration = actionNarration(action) ?? `${action.type} step`;
     beats.push({
       startSec: startMs / 1000,
       endSec: endMs / 1000,
@@ -138,8 +140,12 @@ function captureProgressLog(message: string): void {
 }
 
 function actionProgressLabel(action: CaptureAction): string {
-  const label = shortLabel(action, action.beat ?? `${action.type} step`);
+  const label = shortLabel(action, actionNarration(action) ?? `${action.type} step`);
   return label.length <= 90 ? label : `${label.slice(0, 87)}...`;
+}
+
+function actionNarration(action: CaptureAction): string | undefined {
+  return action.beat ?? action.description;
 }
 
 async function resetHorizontalScroll(page: Page): Promise<void> {

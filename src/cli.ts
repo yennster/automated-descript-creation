@@ -21,8 +21,9 @@ program
   .command("capture")
   .description("open a URL in Playwright, record a tour, draft in Descript")
   .requiredOption("-u, --url <url>", "URL of the deployed app")
-  .requiredOption("-d, --describe <text>", "What to demo / why it's interesting")
   .requiredOption("-n, --name <name>", "Descript project name")
+  .option("-d, --description <text>", "What to demo / why it's interesting (defaults to --name)")
+  .option("--describe <text>", "Deprecated alias for --description")
   .option(
     "-f, --format <list>",
     `Comma-separated formats. Choices: ${Object.keys(FORMAT_PRESETS).join(", ")}`,
@@ -35,20 +36,20 @@ program
   .option("--no-upload", "Skip Descript upload, just generate transcript locally")
   .action(async (opts) => {
     const formats = parseFormats(opts.format);
+    const description = descriptionFromName(opts, "capture");
     const outputDir = await prepareOutputDir(opts.name);
     const actions = await resolveCaptureActions({
       actionsPath: opts.actions,
     });
     const clips = await captureUrl({
       url: opts.url,
-      describe: opts.describe,
       outputDir,
       formats,
       actions,
     });
     await runPipelineGrouped({
       baseName: opts.name,
-      describe: opts.describe,
+      describe: description,
       clips,
       baseOutputDir: outputDir,
       uploadToDescript: opts.upload,
@@ -59,15 +60,17 @@ program
   .command("stitch")
   .description("take an existing folder of clips, draft in Descript")
   .requiredOption("-c, --clips <dir>", "Folder containing video clips")
-  .requiredOption("-d, --describe <text>", "What the demo is about")
   .requiredOption("-n, --name <name>", "Descript project name")
+  .option("-d, --description <text>", "What the demo is about (defaults to --name)")
+  .option("--describe <text>", "Deprecated alias for --description")
   .option("--no-upload", "Skip Descript upload, just generate transcript locally")
   .action(async (opts) => {
+    const description = descriptionFromName(opts, "stitch");
     const outputDir = await prepareOutputDir(opts.name);
     const clips = await stitchClips({ clipsDir: opts.clips });
     await runPipeline({
       name: opts.name,
-      describe: opts.describe,
+      describe: description,
       clips,
       outputDir,
       uploadToDescript: opts.upload,
@@ -163,6 +166,26 @@ function parseFormats(raw: string): CaptureFormat[] {
     }
   }
   return tokens as CaptureFormat[];
+}
+
+function descriptionFromName(
+  opts: { name: string; description?: string; describe?: string },
+  commandName: string,
+): string {
+  const description = opts.description?.trim();
+  const describeAlias = opts.describe?.trim();
+
+  if (description && describeAlias && description !== describeAlias) {
+    console.warn(
+      `[${commandName}] both --description and --describe were provided; using --description`,
+    );
+  }
+
+  const resolved = description || describeAlias || opts.name;
+  if (!description && !describeAlias) {
+    console.log(`[${commandName}] no --description provided; using --name as the description`);
+  }
+  return resolved;
 }
 
 async function prepareOutputDir(name: string): Promise<string> {

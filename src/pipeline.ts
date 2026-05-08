@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { DescriptClient } from "./descript/client.js";
 import { generateNarration } from "./script/generate.js";
 import { writeTranscript } from "./script/transcript.js";
-import type { Clip, RunResult } from "./types.js";
+import type { Clip, RunResult, TranscriptBeat } from "./types.js";
 
 export async function runPipeline(args: {
   name: string;
@@ -74,10 +74,12 @@ export async function runPipeline(args: {
 
   result.projectId = out.projectId;
   console.log(`[pipeline] Descript import processed`);
-  await fitDescriptVideoToCanvas({
+
+  await postProcessDescriptComposition({
     descript,
     projectId: out.projectId,
     compositionId: out.compositionId,
+    actionBeats: actionTimelineBeats(args.clips),
   });
   console.log(`[pipeline] Descript project: ${out.projectUrl}`);
 
@@ -91,30 +93,94 @@ export async function runPipeline(args: {
   return result;
 }
 
-async function fitDescriptVideoToCanvas(args: {
+async function postProcessDescriptComposition(args: {
   descript: DescriptClient;
   projectId: string;
   compositionId?: string;
+  actionBeats: TranscriptBeat[];
 }): Promise<void> {
   if (!args.compositionId) {
-    console.warn("[pipeline] Could not find Descript composition id; skipping canvas fit");
+    console.warn("[pipeline] Could not find Descript composition id; skipping Descript post-process");
     return;
   }
 
-  console.log(`[pipeline] asking Descript to fit the video layer to the canvas`);
+  const splitActionClips = args.actionBeats.length > 0;
+  console.log(
+    `[pipeline] asking Descript to fit the video layer to the canvas${
+      splitActionClips ? ` and split ${args.actionBeats.length} action clip(s)` : ""
+    }`,
+  );
   try {
     await args.descript.agentEdit({
       projectId: args.projectId,
       compositionId: args.compositionId,
       waitForJob: true,
-      prompt:
-        "In this composition, resize and reposition the imported video layer so it fills the entire video canvas. Center it, remove any margins or offset positioning, and keep the visible app/browser recording inside the frame. Do not add text, captions, music, cuts, or other edits.",
+      prompt: buildDescriptPostProcessPrompt(args.actionBeats),
     });
-    console.log(`[pipeline] Descript canvas fit processed`);
+    console.log(
+      `[pipeline] Descript post-process processed${
+        splitActionClips ? " (canvas fit + action clips)" : " (canvas fit)"
+      }`,
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[pipeline] Descript canvas fit failed: ${msg.slice(0, 300)}`);
+    console.warn(`[pipeline] Descript post-process failed: ${msg.slice(0, 300)}`);
   }
+}
+
+function actionTimelineBeats(clips: Clip[]): TranscriptBeat[] {
+  const out: TranscriptBeat[] = [];
+  let offset = 0;
+
+  for (const clip of clips) {
+    if (clip.beats && clip.beats.length > 0) {
+      for (const b of clip.beats) {
+        out.push({
+          clipLabel: b.clipLabel,
+          startSec: offset + b.startSec,
+          endSec: offset + b.endSec,
+          narration: b.narration,
+          cue: b.cue,
+        });
+      }
+    }
+    offset += clip.durationSec;
+  }
+
+  return out;
+}
+
+function buildDescriptPostProcessPrompt(actionBeats: TranscriptBeat[]): string {
+  const lines = [
+    "In this composition, resize and reposition the imported video layer so it fills the entire video canvas. Center it, remove any margins or offset positioning, and keep the visible app/browser recording inside the frame.",
+    "Do not add text, captions, music, transitions, or decorative edits.",
+  ];
+
+  if (actionBeats.length === 0) return lines.join("\n\n");
+
+  lines.push(
+    "Then split the existing recording into a separate timeline clip or scene for each action beat below. Keep the timing boundaries as close as possible to the listed start and end times, without trimming away visible action from inside the range.",
+    "For each resulting clip/scene, set its title/name to the listed title. Attach the listed description as the clip/scene notes or description. If Descript does not support notes/descriptions for that item, add the description as a marker/comment at the start of that clip/scene instead.",
+    "Action beat list:",
+  );
+
+  actionBeats.forEach((beat, index) => {
+    lines.push(
+      `${index + 1}. ${fmtTime(beat.startSec)}-${fmtTime(beat.endSec)} | Title: ${oneLine(beat.clipLabel)} | Description: ${oneLine(beat.narration)}`,
+    );
+  });
+
+  return lines.join("\n\n");
+}
+
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function fmtTime(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 function extOf(path: string): string {

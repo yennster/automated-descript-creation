@@ -64,6 +64,10 @@ Without an `--actions` file:
 - `mock` uses newlines or sentences in your `--describe` as slide headlines.
 - `transcript.md` uses `[Write narration for ...]` placeholders.
 
+`capture` and `stitch` accept optional `--description` text for transcript and
+manifest context. If you omit it, the tool uses `--name`. The older
+`--describe` flag still works as a compatibility alias for those two modes.
+
 ## Setup
 
 ```bash
@@ -78,30 +82,29 @@ Get a Descript API token at Settings → API tokens. The Drive ID is optional
 ## Usage
 
 ```bash
-# capture: drive a deployed app and record (default: 4K desktop)
+# capture: drive a deployed app and record (default: 1080p desktop)
 npm run capture -- \
   --url https://my-app.vercel.app \
-  --describe "Sign up flow, then create a project, then invite a teammate" \
+  --description "Sign up flow, then create a project, then invite a teammate" \
   --name "MyApp demo"
 
 # capture in BOTH desktop and mobile portrait (Shorts/Reels) in one run
 npm run capture -- \
   --url https://my-app.vercel.app \
-  --describe "..." \
+  --description "..." \
   --name "MyApp demo" \
   --format desktop,mobile
 
 # capture an actual click-through (recommended for real demos)
 npm run capture -- \
   --url https://my-app.vercel.app \
-  --describe "Sign up flow then create a project" \
   --name "MyApp demo" \
   --actions ./my-flow.json
 
 # stitch: bring your own clips
 npm run stitch -- \
   --clips ./recordings/ \
-  --describe "What I built and why it's cool" \
+  --description "What I built and why it's cool" \
   --name "MyApp demo"
 
 # mock: prompt-only title-card slides
@@ -115,49 +118,21 @@ A live example:
 ```bash
 npm run capture -- \
   --url "https://synthetic.jennyspeelman.dev/" \
-  --describe "Click through the three main modes: motion, object detection, and visual anomaly." \
   --name "Synthetic Data Studio demo" \
   --format desktop \
   --actions ./example/my-flow.json
 ```
 
-![Synthetic Data Studio capture output](example/output.png)
-
 During capture, the terminal prints action-by-action progress and fallback
-notes. The Descript link appears after import processing and a canvas-fit
-pass complete:
+notes. The Descript link appears after import processing and a Descript
+post-process pass completes. For `--actions` runs, that pass fits the video to
+the canvas and asks Descript to split the recording into action-level
+clips/scenes:
 
-```text
-[capture] loaded 15 action(s) from ./example/my-flow.json
-[capture] running 15 action(s) on desktop
-[capture] done action 1/15: Wait (2.3s)
-[capture] used label click fallback for radio input
-[capture] done action 2/15: Click "input[name='procedural-motion'][value='throw']" (3.8s)
-[capture] done action 6/15: Click "Object detection" (29.6s)
-[capture] done action 12/15: Click "Visual anomaly" (2.6s)
-[capture] done action 15/15: Wait (2.3s)
-[pipeline] generating narration for 1 clips
-[pipeline] wrote ./output/<run-id>/transcript.md
-[pipeline] uploading 1 clip(s) → Descript
-[pipeline] waiting for Descript to process the imported media
-[pipeline] Descript import processed
-[pipeline] asking Descript to fit the video layer to the canvas
-[pipeline] Descript canvas fit processed
-[pipeline] Descript project: https://web.descript.com/<project-id>
-```
+![Synthetic Data Studio capture output](example/output.png)
 
 To check the raw recording before creating a Descript project, add
 `--no-upload` and open the generated `.webm` under `output/<run-id>/raw/`:
-
-```bash
-npm run capture -- \
-  --url "https://synthetic.jennyspeelman.dev/" \
-  --describe "Click through the three main modes: motion, object detection, and visual anomaly." \
-  --name "Synthetic Data Studio frame check" \
-  --format desktop \
-  --actions ./example/my-flow.json \
-  --no-upload
-```
 
 ## Click-through actions
 
@@ -182,12 +157,17 @@ for a minimal example. Schema:
 ```
 
 `click` prefers `text` (Playwright's `getByText`, robust to layout changes)
-over `selector`. The `beat` field is what the speaker narrates while that
-step is on screen.
+over `selector`. The `beat` field (or `description`, as an alias) is what the
+speaker narrates while that step is on screen.
 
 Each action gets its own time-ranged beat in `transcript.md` — so when you
 record voiceover in Descript, you know exactly what to say while each step
 plays back.
+
+When `DESCRIPT_API_TOKEN` is set, `--actions` also sends those same timestamps
+to Descript after import. Descript Agent is asked to split the recording into
+one timeline clip/scene per action and attach each action's `beat` or
+`description` text as the clip/scene description, note, marker, or comment.
 
 If a click fails (e.g. the named button isn't on screen), the run logs a
 warning and continues. Bad steps just become silent gaps; the rest of the
@@ -213,10 +193,10 @@ Viewport and recording size are 1:1 — that's deliberate. Playwright records
 the framebuffer at the logical viewport, so a recording size larger than the
 viewport gets gray letterbox padding instead of pixel-perfect output.
 
-During capture, the tool also hides horizontal page overflow and resets
-horizontal scroll around every action. This keeps apps with wide canvases or
-side panels from sliding sideways in the raw `.webm` when Playwright focuses
-or scrolls a target into view.
+During capture, the tool also hides horizontal page overflow and installs a
+continuous horizontal scroll lock. This keeps apps with wide canvases or side
+panels from sliding sideways in the raw `.webm` when Playwright focuses or
+scrolls a target into view.
 
 The 4K trade-off: at a 3840-wide viewport, apps designed around 1920 desktop
 breakpoints render with everything taking half the relative space, so text
@@ -253,9 +233,9 @@ Known limitations:
 
 - `POST /v1/jobs/import/project_media` — create project + composition with media
   in one round trip; response returns signed `upload_urls` per media key.
+- `POST /v1/jobs/agent` — post-process imported capture projects: fit the
+  recording to the canvas, and for `--actions` runs split the composition into
+  action-level clips/scenes with the beat text attached.
 - `POST /v1/jobs/publish` — render and publish a composition.
 - `GET /v1/jobs/{id}` — poll job status (transcription, processing).
 - `GET /v1/status` — sanity check + drive_id discovery.
-
-There's also `POST /v1/jobs/agent` for natural-language edits, which we may
-use to auto-trim awkward pauses once recordings exist.
