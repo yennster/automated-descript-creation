@@ -5,6 +5,8 @@ You bring an app (or clips, or just an idea); the tool produces a Descript
 project draft + a narration transcript ready for you to record your voice
 over.
 
+![Descript project view post-automation](./docs/project-view.png)
+
 ## Modes
 
 | Mode      | Input                                                  | What it does                                                            |
@@ -127,9 +129,7 @@ During capture, the terminal prints action-by-action progress and fallback
 notes. The Descript link appears after import processing and a Descript
 post-process pass completes. For `--actions` runs, that pass fits the video to
 the canvas and asks Descript to split the recording into action-level
-clips/scenes:
-
-![Synthetic Data Studio capture output](example/output.png)
+clips/scenes.
 
 To check the raw recording before creating a Descript project, add
 `--no-upload` and open the generated `.webm` under `output/<run-id>/raw/`:
