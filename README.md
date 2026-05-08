@@ -146,6 +146,19 @@ pass complete:
 [pipeline] Descript project: https://web.descript.com/<project-id>
 ```
 
+To check the raw recording before creating a Descript project, add
+`--no-upload` and open the generated `.webm` under `output/<run-id>/raw/`:
+
+```bash
+npm run capture -- \
+  --url "https://synthetic.jennyspeelman.dev/" \
+  --describe "Click through the three main modes: motion, object detection, and visual anomaly." \
+  --name "Synthetic Data Studio frame check" \
+  --format desktop \
+  --actions ./example/my-flow.json \
+  --no-upload
+```
+
 ## Click-through actions
 
 By default `capture` does an automated scroll tour. To actually drive the UI
@@ -199,6 +212,11 @@ under `output/<run-id>/<format>/` per group.
 Viewport and recording size are 1:1 — that's deliberate. Playwright records
 the framebuffer at the logical viewport, so a recording size larger than the
 viewport gets gray letterbox padding instead of pixel-perfect output.
+
+During capture, the tool also hides horizontal page overflow and resets
+horizontal scroll around every action. This keeps apps with wide canvases or
+side panels from sliding sideways in the raw `.webm` when Playwright focuses
+or scrolls a target into view.
 
 The 4K trade-off: at a 3840-wide viewport, apps designed around 1920 desktop
 breakpoints render with everything taking half the relative space, so text

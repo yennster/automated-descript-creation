@@ -120,6 +120,7 @@ async function captureOneFormat(args: {
   let beats: TranscriptBeat[] | undefined;
   try {
     await page.goto(args.url, { waitUntil: "networkidle", timeout: 30_000 });
+    await preparePageForCapture(page);
     if (args.actions && args.actions.length > 0) {
       console.log(`[capture] running ${args.actions.length} action(s) on ${args.formatKey}`);
       const actionBeats = await runActionFlow({ page, actions: args.actions, recordingStartMs });
@@ -158,6 +159,29 @@ async function captureOneFormat(args: {
     group: args.formatKey,
     beats,
   };
+}
+
+async function preparePageForCapture(page: Page): Promise<void> {
+  await page.addStyleTag({
+    content: `
+      html,
+      body {
+        max-width: 100vw !important;
+        overflow-x: hidden !important;
+      }
+    `,
+  }).catch(() => {});
+  await resetHorizontalScroll(page);
+}
+
+async function resetHorizontalScroll(page: Page): Promise<void> {
+  await page.evaluate(`(() => {
+    window.scrollTo(0, window.scrollY);
+    document.documentElement.scrollLeft = 0;
+    document.body.scrollLeft = 0;
+    const scrolling = document.scrollingElement;
+    if (scrolling) scrolling.scrollLeft = 0;
+  })()`).catch(() => {});
 }
 
 /**

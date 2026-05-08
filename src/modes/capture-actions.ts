@@ -45,9 +45,12 @@ export async function runActionFlow(args: {
   const beats: ActionBeat[] = [];
 
   // initial settle so the page is on screen for a moment before motion
+  await resetHorizontalScroll(args.page);
   await args.page.waitForTimeout(1500);
+  await resetHorizontalScroll(args.page);
 
   for (const [index, action] of args.actions.entries()) {
+    await resetHorizontalScroll(args.page);
     const progress = startActionProgress({
       index: index + 1,
       total: args.actions.length,
@@ -64,7 +67,9 @@ export async function runActionFlow(args: {
       console.warn(`[capture] action failed (${action.type}): ${msg.slice(0, 200)}`);
       // record a "failed" beat so transcript still aligns; tour continues
     }
+    await resetHorizontalScroll(args.page);
     await args.page.waitForTimeout(pause);
+    await resetHorizontalScroll(args.page);
     const endMs = Date.now() - args.recordingStartMs;
     progress.stop(failed ? "failed" : "done");
 
@@ -137,6 +142,16 @@ function actionProgressLabel(action: CaptureAction): string {
   return label.length <= 90 ? label : `${label.slice(0, 87)}...`;
 }
 
+async function resetHorizontalScroll(page: Page): Promise<void> {
+  await page.evaluate(`(() => {
+    window.scrollTo(0, window.scrollY);
+    document.documentElement.scrollLeft = 0;
+    document.body.scrollLeft = 0;
+    const scrolling = document.scrollingElement;
+    if (scrolling) scrolling.scrollLeft = 0;
+  })()`).catch(() => {});
+}
+
 async function executeAction(page: Page, action: CaptureAction): Promise<void> {
   switch (action.type) {
     case "click":
@@ -145,6 +160,7 @@ async function executeAction(page: Page, action: CaptureAction): Promise<void> {
     case "fill": {
       const target = page.locator(action.selector).first();
       await target.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+      await resetHorizontalScroll(page);
       await target.fill(action.value, { timeout: 10_000 });
       return;
     }
@@ -211,6 +227,7 @@ async function clickLocator(target: Locator, description: string): Promise<void>
   if (await clickInputControl(target)) return;
 
   await target.scrollIntoViewIfNeeded({ timeout: FALLBACK_CLICK_TIMEOUT_MS }).catch(() => {});
+  await resetHorizontalScroll(target.page());
   try {
     await target.click({ timeout: CLICK_TIMEOUT_MS });
     return;
